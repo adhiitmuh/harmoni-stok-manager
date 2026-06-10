@@ -1,0 +1,11 @@
+# Credentials - JANGAN PERNAH di-commit
+sync/serviceAccountKey.json
+sync/*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc

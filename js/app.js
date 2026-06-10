@@ -263,10 +263,15 @@ function renderHppTable() {
   body.innerHTML = rows.slice(0, 200).map(p => {
     const stok = hppLokasi === 'gudang' ? p.stock_qty_gudang : p.stock_qty_toko;
     const saran = p.hpp_suggestion || 0;
+    const variantLabel = p.variant_label || '';
+    const variantVal   = p.variant_names && p.variant_names !== 'nan' && p.variant_names !== '' ? p.variant_names : '';
+    const variantText  = variantLabel && variantVal ? `${variantLabel} — ${variantVal}`
+                       : variantLabel || variantVal || '<span style="color:#ccc">-</span>';
     return `<tr>
       <td>${badgeHTML(p.hpp_status)}</td>
       <td><strong>${p.sku}</strong></td>
-      <td>${p.name}<br><small style="color:#999">${p.variant || ''}</small></td>
+      <td>${p.name}</td>
+      <td style="font-size:12px;color:#444">${variantText}</td>
       <td>${p.category || '-'}</td>
       <td class="number">${num(stok)}</td>
       <td class="number">${rp(p.pos_sell_price)}</td>
