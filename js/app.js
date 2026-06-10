@@ -31,6 +31,7 @@ function loadPage(id) {
   if (id === 'dashboard')     loadDashboard();
   if (id === 'nota')          loadNota();
   if (id === 'hpp')           loadHpp();
+  if (id === 'sinkron')       loadSinkron();
   if (id === 'stok')          loadStok();
   if (id === 'rekonsiliasi')  loadRekonsiliasi();
 }
@@ -371,6 +372,137 @@ window.switchRekonTab = (tab) => {
   document.querySelectorAll('.rekon-panel').forEach(p =>
     p.classList.toggle('active', p.id === `rekon-panel-${tab}`));
 };
+
+// ── UPLOAD DATA OLSERA ─────────────────────────────────────────────────────
+const uploadData = { gudang: [], toko: [] };
+
+function loadSinkron() {} // page loaded on nav click, no init needed
+
+window.handleDrop = (e, lokasi) => {
+  e.preventDefault();
+  document.getElementById(`drop-${lokasi}`).classList.remove('drag-over');
+  handleFiles(e.dataTransfer.files, lokasi);
+};
+
+window.handleFiles = async (files, lokasi) => {
+  if (!files.length) return;
+  const XLSX = await loadXLSX();
+  uploadData[lokasi] = [];
+
+  let totalRows = 0;
+  const fileNames = [];
+
+  for (const file of files) {
+    const buf  = await file.arrayBuffer();
+    const wb   = XLSX.read(buf, { type: 'array' });
+    const ws   = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    uploadData[lokasi].push(...rows);
+    totalRows += rows.length;
+    fileNames.push(file.name);
+  }
+
+  const info = document.getElementById(`info-${lokasi}`);
+  info.style.display = 'block';
+  info.innerHTML = `
+    ✅ <strong>${files.length} file</strong> berhasil dibaca<br>
+    📦 <strong>${totalRows.toLocaleString('id-ID')} baris</strong> data produk siap diupload<br>
+    📄 ${fileNames.join(', ')}
+  `;
+  document.getElementById(`btn-upload-${lokasi}`).style.display = 'block';
+};
+
+let xlsxLib = null;
+async function loadXLSX() {
+  if (xlsxLib) return xlsxLib;
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+  xlsxLib = window.XLSX;
+  return xlsxLib;
+}
+
+window.uploadToFirestore = async (lokasi) => {
+  const rows = uploadData[lokasi];
+  if (!rows.length) return;
+
+  const btn = document.getElementById(`btn-upload-${lokasi}`);
+  btn.disabled = true; btn.textContent = 'Mengupload...';
+
+  const card = document.getElementById('upload-progress-card');
+  const bar  = document.getElementById('upload-progress-bar');
+  const log  = document.getElementById('upload-log');
+  card.style.display = 'block'; log.innerHTML = '';
+
+  const addLog = (msg) => { log.innerHTML += msg + '<br>'; log.scrollTop = log.scrollHeight; };
+
+  try {
+    const total = rows.length;
+    let done = 0;
+    const BATCH = 400;
+
+    addLog(`🚀 Memulai upload <strong>${total.toLocaleString('id-ID')}</strong> produk (${lokasi})...`);
+
+    for (let i = 0; i < total; i += BATCH) {
+      const chunk = rows.slice(i, i + BATCH);
+      const batch = writeBatch(db);
+
+      for (const r of chunk) {
+        const sku = String(r.sku || '').trim().toUpperCase();
+        if (!sku || sku === 'SKU') continue;
+
+        const stockField = lokasi === 'gudang' ? 'stock_qty_gudang' : 'stock_qty_toko';
+        const priceField = lokasi === 'gudang' ? 'buy_price_gudang' : 'buy_price_toko';
+
+        const data = {
+          sku,
+          name          : String(r.name || '').trim().toUpperCase(),
+          category      : String(r.category || '').trim(),
+          variant_label : String(r.variant_label || '').trim(),
+          variant_names : String(r.variant_names || '').trim(),
+          pos_sell_price: parseFloat(r.pos_sell_price) || 0,
+          [stockField]  : parseFloat(r.stock_qty) || 0,
+          [priceField]  : parseFloat(r.buy_price) || 0,
+          updated_at    : serverTimestamp(),
+        };
+
+        // Tambahkan lokasi
+        const ref = doc(db, 'products', sku);
+        batch.set(ref, {
+          ...data,
+          lokasi: lokasi === 'gudang'
+            ? (data[stockField] >= 0 ? ['gudang'] : [])
+            : (data[stockField] >= 0 ? ['toko'] : []),
+        }, { merge: true });
+      }
+
+      await batch.commit();
+      done += chunk.length;
+      const pct = Math.round(done / total * 100);
+      bar.style.width = pct + '%';
+      addLog(`✓ ${done.toLocaleString('id-ID')} / ${total.toLocaleString('id-ID')} produk`);
+    }
+
+    addLog(`<strong style="color:#16a34a">✅ Upload selesai! ${total.toLocaleString('id-ID')} produk ${lokasi} berhasil disinkronkan.</strong>`);
+    toast(`✅ ${total.toLocaleString('id-ID')} produk ${lokasi} berhasil diupload`);
+    stokAllData = []; // reset cache stok
+    invalidateDashboard();
+  } catch (e) {
+    addLog(`<span style="color:red">❌ Error: ${e.message}</span>`);
+    toast('Gagal upload: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = '⬆️ Upload ke Sistem';
+  }
+};
+
+function invalidateDashboard() {
+  // Force reload dashboard data next time
+  document.getElementById('dash-loading').style.display = 'flex';
+  document.getElementById('dash-content').style.display = 'none';
+}
 
 // ── UPDATE STOK ────────────────────────────────────────────────────────────
 let stokAllData = [];
