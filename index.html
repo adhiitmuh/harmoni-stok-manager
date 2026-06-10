@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Harmoni Stok Manager</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── Sidebar ─────────────────────────────────────────────── -->
+<nav id="sidebar">
+  <div class="sidebar-logo">
+    harmoni
+    <span>Stok Manager</span>
+  </div>
+  <div class="sidebar-nav">
+    <button class="nav-item active" data-page="dashboard">
+      <span class="icon">📊</span> Dashboard
+    </button>
+    <button class="nav-item" data-page="nota">
+      <span class="icon">🧾</span> Input Nota
+    </button>
+    <button class="nav-item" data-page="hpp">
+      <span class="icon">💰</span> Isi HPP
+    </button>
+    <button class="nav-item" data-page="rekonsiliasi">
+      <span class="icon">🔄</span> Rekonsiliasi Stok
+    </button>
+  </div>
+  <div class="sidebar-footer">harmoni © 2026</div>
+</nav>
+
+<!-- ── Main ────────────────────────────────────────────────── -->
+<main id="main">
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" class="page active">
+    <h1 class="page-title">Dashboard</h1>
+    <p class="page-subtitle">Ringkasan kondisi data produk Harmoni</p>
+
+    <div id="dash-loading" class="loading">
+      <div class="spinner"></div>
+      <span>Memuat data...</span>
+    </div>
+
+    <div id="dash-content" style="display:none">
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-val" id="m-hpp-g">—</div>
+          <div class="metric-label">Item Gudang tanpa HPP</div>
+        </div>
+        <div class="metric-card alt">
+          <div class="metric-val" id="m-hpp-t">—</div>
+          <div class="metric-label">Item Toko tanpa HPP</div>
+        </div>
+        <div class="metric-card warn">
+          <div class="metric-val" id="m-only-t">—</div>
+          <div class="metric-label">SKU hanya di Toko</div>
+        </div>
+        <div class="metric-card info">
+          <div class="metric-val" id="m-beda-stok">—</div>
+          <div class="metric-label">Stok tidak sinkron</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+        <div class="card">
+          <div class="card-title">📦 Status HPP Gudang</div>
+          <div id="status-gudang" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">🏪 Status HPP Toko</div>
+          <div id="status-toko" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">⚡ 10 Item Prioritas — Stok Terbesar Tanpa HPP</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>SKU</th><th>Nama Produk</th><th>Kategori</th>
+              <th>Stok</th><th>Harga Jual</th><th>Status</th>
+            </tr></thead>
+            <tbody id="top10-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🧾 Nota Terakhir Masuk</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Tanggal</th><th>Supplier</th><th>No. Invoice</th><th>Jumlah Item</th>
+            </tr></thead>
+            <tbody id="nota-recent-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INPUT NOTA -->
+  <div id="nota" class="page">
+    <h1 class="page-title">Input Nota Baru</h1>
+    <p class="page-subtitle">Masukkan data dari nota/invoice fisik supplier</p>
+
+    <div class="card">
+      <div class="form-section-title">Info Nota</div>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Tanggal Nota *</label>
+          <input type="date" id="nota-tanggal">
+        </div>
+        <div class="form-group">
+          <label>Supplier *</label>
+          <input type="text" id="nota-supplier" placeholder="Nama supplier" list="supplier-list">
+          <datalist id="supplier-list">
+            <option value="Salfa Jaya">
+            <option value="D&A Shoes">
+            <option value="Fajar">
+            <option value="Ragam Raya">
+            <option value="Restu">
+            <option value="Sumber Urip">
+            <option value="Amanah Jaya">
+            <option value="Target MF">
+            <option value="Kharis Tara">
+            <option value="Aneka Warna">
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label>No. Invoice <span style="color:#999">(opsional)</span></label>
+          <input type="text" id="nota-noinv" placeholder="Contoh: SF-001">
+        </div>
+      </div>
+
+      <div class="form-section-title">Item Barang</div>
+      <div class="table-wrap" style="margin-bottom:12px">
+        <table class="nota-items-table">
+          <thead><tr>
+            <th style="min-width:280px">Nama Barang</th>
+            <th style="width:80px">Qty</th>
+            <th style="width:160px">Harga Satuan (HPP)</th>
+            <th style="width:130px">Catatan</th>
+            <th style="width:40px"></th>
+          </tr></thead>
+          <tbody id="nota-items-body"></tbody>
+        </table>
+      </div>
+
+      <div style="display:flex;gap:12px">
+        <button class="btn btn-secondary btn-sm" onclick="addNotaRow()">+ Tambah Baris</button>
+        <button class="btn btn-primary" id="btn-simpan-nota" onclick="submitNota()">💾 Simpan Nota</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 Riwayat Nota (50 terakhir)</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Tanggal</th><th>Supplier</th><th>No. Invoice</th>
+            <th>Jumlah Item</th><th>Item</th>
+          </tr></thead>
+          <tbody id="nota-history-body">
+            <tr><td colspan="5" class="loading"><div class="spinner"></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ISI HPP -->
+  <div id="hpp" class="page">
+    <h1 class="page-title">Isi HPP Produk</h1>
+    <p class="page-subtitle">Produk tanpa HPP — isi kolom HPP lalu klik Simpan</p>
+
+    <div class="card" style="padding:16px 24px">
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary hpp-lokasi-btn btn-sm active" data-lokasi="gudang" onclick="switchHppLokasi('gudang')">📦 Gudang</button>
+          <button class="btn btn-secondary hpp-lokasi-btn btn-sm" data-lokasi="toko" onclick="switchHppLokasi('toko')">🏪 Toko</button>
+        </div>
+        <div class="filters" style="flex:1">
+          <input type="search" id="hpp-search" placeholder="🔍 Cari SKU / nama..." oninput="filterHpp()">
+          <select id="hpp-status-filter" onchange="filterHpp()">
+            <option value="">Semua status</option>
+            <option value="AUTO">🟢 AUTO</option>
+            <option value="CEK">🟡 CEK</option>
+            <option value="MANUAL">🔴 MANUAL</option>
+          </select>
+          <select id="hpp-kat-filter" onchange="filterHpp()">
+            <option value="">Semua kategori</option>
+          </select>
+        </div>
+        <span id="hpp-count" style="font-size:13px;color:#666"></span>
+        <button class="btn btn-success" id="btn-save-hpp" onclick="saveHpp()">💾 Simpan Semua HPP</button>
+      </div>
+    </div>
+
+    <div id="hpp-loading" class="loading" style="display:flex">
+      <div class="spinner"></div><span>Memuat produk...</span>
+    </div>
+
+    <div id="hpp-content" style="display:none">
+      <div class="card" style="padding:12px 0">
+        <div style="padding:0 12px 8px;display:flex;gap:16px;font-size:12px;color:#666">
+          <span>🟢 <strong>AUTO</strong> — HPP otomatis dari nota (≥85% cocok)</span>
+          <span>🟡 <strong>CEK</strong> — Perlu konfirmasi ke nota fisik</span>
+          <span>🔴 <strong>MANUAL</strong> — Tidak ada di nota, isi dari dokumen fisik</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th style="width:80px">Status</th>
+              <th style="width:90px">SKU</th>
+              <th>Nama Produk</th>
+              <th style="width:150px">Kategori</th>
+              <th style="width:80px">Stok</th>
+              <th style="width:110px">Harga Jual</th>
+              <th style="width:120px">Saran HPP</th>
+              <th style="width:150px">HPP Baru ✏️</th>
+            </tr></thead>
+            <tbody id="hpp-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- REKONSILIASI -->
+  <div id="rekonsiliasi" class="page">
+    <h1 class="page-title">Rekonsiliasi Stok</h1>
+    <p class="page-subtitle">Perbandingan data antara gudang dan toko</p>
+
+    <div id="rekon-loading" class="loading">
+      <div class="spinner"></div><span>Memuat data...</span>
+    </div>
+
+    <div id="rekon-content" style="display:none">
+      <div class="tabs">
+        <button class="tab-btn rekon-tab-btn active" data-tab="only-toko"
+          onclick="switchRekonTab('only-toko')">
+          Hanya di Toko <span id="tab-only-toko-cnt" style="background:#fee2e2;color:#dc2626;border-radius:20px;padding:1px 8px;font-size:11px;margin-left:4px"></span>
+        </button>
+        <button class="tab-btn rekon-tab-btn" data-tab="only-gudang"
+          onclick="switchRekonTab('only-gudang')">
+          Hanya di Gudang <span id="tab-only-gudang-cnt" style="background:#fee2e2;color:#dc2626;border-radius:20px;padding:1px 8px;font-size:11px;margin-left:4px"></span>
+        </button>
+        <button class="tab-btn rekon-tab-btn" data-tab="beda-stok"
+          onclick="switchRekonTab('beda-stok')">
+          Stok Berbeda <span id="tab-beda-stok-cnt" style="background:#fef3c7;color:#d97706;border-radius:20px;padding:1px 8px;font-size:11px;margin-left:4px"></span>
+        </button>
+        <button class="tab-btn rekon-tab-btn" data-tab="beda-nama"
+          onclick="switchRekonTab('beda-nama')">
+          Nama Berbeda <span id="tab-beda-nama-cnt" style="background:#fef3c7;color:#d97706;border-radius:20px;padding:1px 8px;font-size:11px;margin-left:4px"></span>
+        </button>
+      </div>
+
+      <div class="card">
+        <div id="rekon-panel-only-toko" class="rekon-panel active">
+          <p style="font-size:13px;color:#666;margin-bottom:12px">SKU ini ada di toko tapi tidak di gudang — perlu ditambahkan ke gudang atau diperiksa.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>SKU</th><th>Nama</th><th>Kategori</th><th>Stok Toko</th><th>HPP Toko</th></tr></thead>
+            <tbody id="rekon-only-toko-body"></tbody>
+          </table></div>
+        </div>
+
+        <div id="rekon-panel-only-gudang" class="rekon-panel">
+          <p style="font-size:13px;color:#666;margin-bottom:12px">SKU ini ada di gudang tapi tidak di toko.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>SKU</th><th>Nama</th><th>Kategori</th><th>Stok Gudang</th><th>HPP Gudang</th></tr></thead>
+            <tbody id="rekon-only-gudang-body"></tbody>
+          </table></div>
+        </div>
+
+        <div id="rekon-panel-beda-stok" class="rekon-panel">
+          <p style="font-size:13px;color:#666;margin-bottom:12px">Jumlah stok berbeda antara gudang dan toko.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>SKU</th><th>Nama</th><th>Stok Gudang</th><th>Stok Toko</th><th>Selisih</th></tr></thead>
+            <tbody id="rekon-beda-stok-body"></tbody>
+          </table></div>
+        </div>
+
+        <div id="rekon-panel-beda-nama" class="rekon-panel">
+          <p style="font-size:13px;color:#666;margin-bottom:12px">SKU sama tapi nama produk berbeda antara gudang dan toko.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>SKU</th><th>Nama di Gudang</th><th>Nama di Toko</th><th>Kategori</th></tr></thead>
+            <tbody id="rekon-beda-nama-body"></tbody>
+          </table></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
