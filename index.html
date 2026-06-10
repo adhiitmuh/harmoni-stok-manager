@@ -5,8 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Harmoni Stok Manager</title>
   <link rel="stylesheet" href="css/style.css">
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
+
+<!-- Auth overlay -->
+<div id="auth-overlay" style="position:fixed;inset:0;background:#034543;z-index:9999;display:flex;align-items:center;justify-content:center">
+  <div id="auth-loading" style="text-align:center;color:#FFFBD5">
+    <div style="font-size:2rem;font-weight:800;margin-bottom:8px">harmoni</div>
+    <div style="opacity:.6;font-size:.9rem">Memuat...</div>
+  </div>
+  <div id="auth-no-login" style="display:none;background:white;border-radius:16px;padding:40px 32px;text-align:center;max-width:340px;width:90%">
+    <div style="font-size:2.5rem;margin-bottom:12px">🔐</div>
+    <div style="font-weight:700;font-size:1.1rem;margin-bottom:8px">Belum Login</div>
+    <div style="color:#6b7280;font-size:.88rem;margin-bottom:20px">Silakan login melalui Portal Harmoni terlebih dahulu.</div>
+    <a href="https://adhiitmuh.github.io/harmoni-indonesia/" style="display:inline-block;padding:10px 24px;background:#034543;color:white;border-radius:8px;font-weight:700;text-decoration:none">Ke Portal →</a>
+  </div>
+  <div id="auth-denied" style="display:none;background:white;border-radius:16px;padding:40px 32px;text-align:center;max-width:340px;width:90%">
+    <div style="font-size:2.5rem;margin-bottom:12px">🚫</div>
+    <div style="font-weight:700;font-size:1.1rem;margin-bottom:8px">Tidak Ada Akses</div>
+    <div style="color:#6b7280;font-size:.88rem;margin-bottom:20px">Akun Anda belum memiliki akses ke aplikasi ini. Hubungi admin untuk mendapatkan akses.</div>
+    <a href="https://adhiitmuh.github.io/harmoni-indonesia/" style="display:inline-block;padding:10px 24px;background:#034543;color:white;border-radius:8px;font-weight:700;text-decoration:none">Kembali ke Portal →</a>
+  </div>
+</div>
 
 <!-- ── Sidebar ─────────────────────────────────────────────── -->
 <nav id="sidebar">
@@ -316,5 +339,50 @@
 <div id="toast"></div>
 
 <script type="module" src="js/app.js"></script>
+
+<script>
+const _fbCfg = {
+  apiKey: 'AIzaSyA9V5Lw40pDeAWeQKijYCkdvnag8AlEe74',
+  authDomain: 'harmoni-indonesia.firebaseapp.com',
+  projectId: 'harmoni-indonesia',
+  storageBucket: 'harmoni-indonesia.firebasestorage.app',
+  messagingSenderId: '825719884876',
+  appId: '1:825719884876:web:a8fd78d382e0f98cf6b8e9'
+};
+if (!firebase.apps.length) firebase.initializeApp(_fbCfg);
+
+firebase.auth().onAuthStateChanged(async user => {
+  const overlay   = document.getElementById('auth-overlay');
+  const elLoading = document.getElementById('auth-loading');
+  const elNoLogin = document.getElementById('auth-no-login');
+  const elDenied  = document.getElementById('auth-denied');
+
+  if (!user) {
+    elLoading.style.display = 'none';
+    elNoLogin.style.display = 'block';
+    return;
+  }
+  try {
+    const snap    = await firebase.firestore().collection('users').doc(user.uid).get();
+    const data    = snap.exists ? snap.data() : null;
+    const isOwner = data?.role === 'owner';
+    const appData = data?.apps?.harmoni_stok;
+
+    if (!data?.aktif || (!isOwner && !appData?.akses)) {
+      elLoading.style.display = 'none';
+      elDenied.style.display  = 'block';
+      return;
+    }
+
+    overlay.style.display = 'none';
+    // Tampilkan nama user di sidebar footer
+    const footer = document.querySelector('.sidebar-footer');
+    if (footer) footer.textContent = (data.nama || user.email) + ' · harmoni © 2026';
+  } catch(e) {
+    elLoading.style.display = 'none';
+    elDenied.style.display  = 'block';
+  }
+});
+</script>
 </body>
 </html>
