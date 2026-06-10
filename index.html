@@ -45,14 +45,29 @@
     </div>
 
     <div id="dash-content" style="display:none">
-      <div class="metrics-grid">
+      <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr)">
         <div class="metric-card">
-          <div class="metric-val" id="m-hpp-g">—</div>
-          <div class="metric-label">Item Gudang tanpa HPP</div>
+          <div class="metric-val" id="m-total-g">—</div>
+          <div class="metric-label">Total SKU Gudang</div>
         </div>
         <div class="metric-card alt">
+          <div class="metric-val" id="m-total-t">—</div>
+          <div class="metric-label">Total SKU Toko</div>
+        </div>
+        <div class="metric-card" style="background:#1a5c5a">
+          <div class="metric-val" id="m-total-all">—</div>
+          <div class="metric-label">Total SKU Keseluruhan</div>
+        </div>
+      </div>
+
+      <div class="metrics-grid" style="margin-top:0">
+        <div class="metric-card" style="background:#7f1d1d">
+          <div class="metric-val" id="m-hpp-g">—</div>
+          <div class="metric-label">Gudang tanpa HPP</div>
+        </div>
+        <div class="metric-card" style="background:#7c2d12">
           <div class="metric-val" id="m-hpp-t">—</div>
-          <div class="metric-label">Item Toko tanpa HPP</div>
+          <div class="metric-label">Toko tanpa HPP</div>
         </div>
         <div class="metric-card warn">
           <div class="metric-val" id="m-only-t">—</div>

@@ -50,17 +50,22 @@ async function loadDashboard() {
     const products = prodSnap.docs.map(d => d.data());
     const notas    = notaSnap.docs.map(d => d.data());
 
-    const missingHppG = products.filter(p => p.lokasi?.includes('gudang') && !(p.buy_price_gudang > 0));
-    const missingHppT = products.filter(p => p.lokasi?.includes('toko')   && !(p.buy_price_toko   > 0));
+    const gudangProds = products.filter(p => p.lokasi?.includes('gudang'));
+    const tokoProds   = products.filter(p => p.lokasi?.includes('toko'));
+    const missingHppG = gudangProds.filter(p => !(p.buy_price_gudang > 0));
+    const missingHppT = tokoProds.filter(p => !(p.buy_price_toko > 0));
     const onlyToko    = products.filter(p => p.lokasi?.length === 1 && p.lokasi[0] === 'toko');
     const bedaStok    = products.filter(p =>
       p.lokasi?.includes('gudang') && p.lokasi?.includes('toko') &&
       p.stock_qty_gudang !== p.stock_qty_toko
     );
 
-    el('m-hpp-g').textContent = missingHppG.length.toLocaleString('id-ID');
-    el('m-hpp-t').textContent = missingHppT.length.toLocaleString('id-ID');
-    el('m-only-t').textContent = onlyToko.length.toLocaleString('id-ID');
+    el('m-total-g').textContent   = gudangProds.length.toLocaleString('id-ID');
+    el('m-total-t').textContent   = tokoProds.length.toLocaleString('id-ID');
+    el('m-total-all').textContent = products.length.toLocaleString('id-ID');
+    el('m-hpp-g').textContent     = missingHppG.length.toLocaleString('id-ID');
+    el('m-hpp-t').textContent     = missingHppT.length.toLocaleString('id-ID');
+    el('m-only-t').textContent    = onlyToko.length.toLocaleString('id-ID');
     el('m-beda-stok').textContent = bedaStok.length.toLocaleString('id-ID');
 
     // Status breakdown
