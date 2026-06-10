@@ -454,9 +454,9 @@ const _fbCfg = {
   messagingSenderId: '825719884876',
   appId: '1:825719884876:web:a8fd78d382e0f98cf6b8e9'
 };
-if (!firebase.apps.length) firebase.initializeApp(_fbCfg);
+const _app = firebase.apps.find(a => a.name === 'harmoni-auth') || firebase.initializeApp(_fbCfg, 'harmoni-auth');
 
-firebase.auth().onAuthStateChanged(async user => {
+_app.auth().onAuthStateChanged(async user => {
   const overlay   = document.getElementById('auth-overlay');
   const elLoading = document.getElementById('auth-loading');
   const elNoLogin = document.getElementById('auth-no-login');
@@ -468,7 +468,7 @@ firebase.auth().onAuthStateChanged(async user => {
     return;
   }
   try {
-    const snap    = await firebase.firestore().collection('users').doc(user.uid).get();
+    const snap    = await _app.firestore().collection('users').doc(user.uid).get();
     const data    = snap.exists ? snap.data() : null;
     const isOwner = data?.role === 'owner';
     const appData = data?.apps?.harmoni_stok;
