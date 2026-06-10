@@ -31,6 +31,7 @@ function loadPage(id) {
   if (id === 'dashboard')     loadDashboard();
   if (id === 'nota')          loadNota();
   if (id === 'hpp')           loadHpp();
+  if (id === 'stok')          loadStok();
   if (id === 'rekonsiliasi')  loadRekonsiliasi();
 }
 
@@ -369,6 +370,119 @@ window.switchRekonTab = (tab) => {
     b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.rekon-panel').forEach(p =>
     p.classList.toggle('active', p.id === `rekon-panel-${tab}`));
+};
+
+// ── UPDATE STOK ────────────────────────────────────────────────────────────
+let stokAllData = [];
+
+async function loadStok() {
+  document.getElementById('stok-loading').style.display    = 'flex';
+  document.getElementById('stok-table-wrap').style.display = 'none';
+  document.getElementById('stok-empty').style.display      = 'none';
+
+  if (stokAllData.length === 0) {
+    const snap   = await getDocs(collection(db, 'products'));
+    stokAllData  = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    stokAllData.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    // Isi dropdown kategori
+    const kats = [...new Set(stokAllData.map(p => p.category).filter(Boolean))].sort();
+    const sel  = document.getElementById('stok-kat');
+    if (sel.options.length <= 1)
+      kats.forEach(k => sel.add(new Option(k, k)));
+  }
+
+  document.getElementById('stok-loading').style.display = 'none';
+  document.getElementById('stok-empty').style.display   = 'flex';
+}
+
+window.searchStok = () => {
+  const cari = document.getElementById('stok-search').value.trim().toUpperCase();
+  const kat  = document.getElementById('stok-kat').value;
+
+  if (!cari && !kat) {
+    document.getElementById('stok-table-wrap').style.display = 'none';
+    document.getElementById('stok-empty').style.display      = 'flex';
+    document.getElementById('stok-count').textContent        = '';
+    return;
+  }
+
+  let rows = stokAllData;
+  if (cari) rows = rows.filter(p =>
+    (p.name || '').includes(cari) || (p.sku || '').includes(cari) ||
+    (p.variant_names || '').includes(cari) || (p.variant_label || '').includes(cari)
+  );
+  if (kat) rows = rows.filter(p => p.category === kat);
+
+  document.getElementById('stok-count').textContent        = rows.length > 0 ? `${rows.length.toLocaleString('id-ID')} produk ditemukan` : 'Tidak ditemukan';
+  document.getElementById('stok-empty').style.display      = 'none';
+  document.getElementById('stok-table-wrap').style.display = rows.length > 0 ? 'block' : 'none';
+
+  const variantText = p => {
+    const l = p.variant_label || '', v = p.variant_names && p.variant_names !== 'nan' ? p.variant_names : '';
+    return l && v ? `${l} — ${v}` : l || v || '-';
+  };
+
+  document.getElementById('stok-table-body').innerHTML = rows.slice(0, 100).map(p => `
+    <tr id="stok-row-${p.id}">
+      <td><strong>${p.sku}</strong></td>
+      <td>${p.name}</td>
+      <td style="font-size:12px;color:#444">${variantText(p)}</td>
+      <td>${p.category || '-'}</td>
+      <td class="number">
+        <input type="number" id="sg-${p.id}" value="${p.stock_qty_gudang ?? ''}"
+          placeholder="-" min="0" style="width:90px;padding:6px 8px;border:1.5px solid #e5e5e5;border-radius:6px;font-size:13px;text-align:right"
+          onfocus="this.style.borderColor='#034543';this.style.background='#fffbd5'"
+          onblur="this.style.borderColor='#e5e5e5';this.style.background=''">
+      </td>
+      <td class="number">
+        <input type="number" id="st-${p.id}" value="${p.stock_qty_toko ?? ''}"
+          placeholder="-" min="0" style="width:90px;padding:6px 8px;border:1.5px solid #e5e5e5;border-radius:6px;font-size:13px;text-align:right"
+          onfocus="this.style.borderColor='#034543';this.style.background='#fffbd5'"
+          onblur="this.style.borderColor='#e5e5e5';this.style.background=''">
+      </td>
+      <td>
+        <button class="btn btn-primary btn-sm" onclick="saveStok('${p.id}')">Simpan</button>
+      </td>
+    </tr>`).join('');
+
+  if (rows.length > 100)
+    document.getElementById('stok-table-body').insertAdjacentHTML('beforeend',
+      `<tr><td colspan="7" style="text-align:center;padding:16px;color:#999;font-size:13px">
+        Menampilkan 100 dari ${rows.length} hasil. Persempit pencarian untuk melihat lebih spesifik.
+      </td></tr>`);
+};
+
+window.saveStok = async (id) => {
+  const btn  = document.querySelector(`#stok-row-${id} button`);
+  const sg   = parseFloat(document.getElementById(`sg-${id}`)?.value ?? '');
+  const st   = parseFloat(document.getElementById(`st-${id}`)?.value ?? '');
+
+  btn.disabled    = true;
+  btn.textContent = '...';
+
+  try {
+    const update = { updated_at: serverTimestamp() };
+    if (!isNaN(sg)) update.stock_qty_gudang = sg;
+    if (!isNaN(st)) update.stock_qty_toko   = st;
+
+    await updateDoc(doc(db, 'products', id), update);
+
+    // Update cache lokal
+    const idx = stokAllData.findIndex(p => p.id === id);
+    if (idx >= 0) {
+      if (!isNaN(sg)) stokAllData[idx].stock_qty_gudang = sg;
+      if (!isNaN(st)) stokAllData[idx].stock_qty_toko   = st;
+    }
+
+    btn.textContent = '✓';
+    btn.style.background = '#16a34a';
+    setTimeout(() => { btn.disabled = false; btn.textContent = 'Simpan'; btn.style.background = ''; }, 1500);
+    toast(`✅ Stok ${id} diperbarui`);
+  } catch (e) {
+    toast('Gagal: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Simpan';
+  }
 };
 
 // ── Init ───────────────────────────────────────────────────────────────────

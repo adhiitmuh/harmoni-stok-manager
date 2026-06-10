@@ -47,6 +47,9 @@
     <button class="nav-item" data-page="hpp">
       <span class="icon">💰</span> Isi HPP
     </button>
+    <button class="nav-item" data-page="stok">
+      <span class="icon">📦</span> Update Stok
+    </button>
     <button class="nav-item" data-page="rekonsiliasi">
       <span class="icon">🔄</span> Rekonsiliasi Stok
     </button>
@@ -137,6 +140,51 @@
           </table>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- UPDATE STOK -->
+  <div id="stok" class="page">
+    <h1 class="page-title">Update Stok</h1>
+    <p class="page-subtitle">Cari produk lalu update jumlah stok gudang dan/atau toko</p>
+
+    <div class="card" style="padding:16px 24px">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <input type="search" id="stok-search" placeholder="🔍 Cari SKU atau nama produk..."
+          oninput="searchStok()" style="flex:1;min-width:280px;padding:10px 14px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:14px">
+        <select id="stok-kat" onchange="searchStok()" style="padding:10px 14px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:14px">
+          <option value="">Semua kategori</option>
+        </select>
+        <span id="stok-count" style="font-size:13px;color:#666"></span>
+      </div>
+    </div>
+
+    <div class="card" style="padding:0">
+      <div id="stok-loading" class="loading"><div class="spinner"></div><span>Memuat data...</span></div>
+      <div id="stok-table-wrap" style="display:none">
+        <div style="padding:12px 20px;background:#fffbd5;border-bottom:1px solid #e5e5e5;font-size:13px;color:#666">
+          ✏️ Klik langsung pada angka stok untuk mengedit. Klik <strong>Simpan</strong> setelah selesai.
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th style="width:90px">SKU</th>
+              <th>Nama Produk</th>
+              <th style="width:110px">Varian</th>
+              <th style="width:130px">Kategori</th>
+              <th style="width:110px">Stok Gudang ✏️</th>
+              <th style="width:110px">Stok Toko ✏️</th>
+              <th style="width:90px">Aksi</th>
+            </tr></thead>
+            <tbody id="stok-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="stok-empty" style="display:none" class="loading">
+      <span style="font-size:40px">🔍</span>
+      <span>Ketik nama atau SKU produk di kotak pencarian</span>
     </div>
   </div>
 
