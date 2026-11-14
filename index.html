@@ -16,18 +16,18 @@
 <body>
 
 <!-- Auth overlay -->
-<div id="auth-overlay" style="position:fixed;inset:0;background:#034543;z-index:9999;display:flex;align-items:center;justify-content:center">
-  <div id="auth-loading" style="text-align:center;color:#FFFBD5">
-    <img src="img/logo-beige.png" alt="harmoni" style="width:120px;margin-bottom:8px">
-    <div style="opacity:.6;font-size:.9rem">Memuat...</div>
+<div id="auth-overlay" style="position:fixed;inset:0;background:#F6F8F7;z-index:9999;display:flex;align-items:center;justify-content:center">
+  <div id="auth-loading" style="text-align:center;color:#034543;display:flex;flex-direction:column;align-items:center;gap:8px">
+    <img src="img/hmark-green.png" alt="harmoni" style="height:34px;display:block">
+    <div style="font-size:12px;font-weight:700;letter-spacing:1px">MEMUAT...</div>
   </div>
-  <div id="auth-no-login" style="display:none;background:white;border-radius:16px;padding:40px 32px;text-align:center;max-width:340px;width:90%">
+  <div id="auth-no-login" style="display:none;background:white;border-radius:16px;box-shadow:0 8px 30px rgba(3,69,67,.12);padding:40px 32px;text-align:center;max-width:340px;width:90%">
     <div style="font-size:2.5rem;margin-bottom:12px">🔐</div>
     <div style="font-weight:700;font-size:1.1rem;margin-bottom:8px">Belum Login</div>
     <div style="color:#6b7280;font-size:.88rem;margin-bottom:20px">Silakan login melalui Portal Harmoni terlebih dahulu.</div>
     <a href="https://adhiitmuh.github.io/harmoni-indonesia/" style="display:inline-block;padding:10px 24px;background:#034543;color:white;border-radius:8px;font-weight:700;text-decoration:none">Ke Portal →</a>
   </div>
-  <div id="auth-denied" style="display:none;background:white;border-radius:16px;padding:40px 32px;text-align:center;max-width:340px;width:90%">
+  <div id="auth-denied" style="display:none;background:white;border-radius:16px;box-shadow:0 8px 30px rgba(3,69,67,.12);padding:40px 32px;text-align:center;max-width:340px;width:90%">
     <div style="font-size:2.5rem;margin-bottom:12px">🚫</div>
     <div style="font-weight:700;font-size:1.1rem;margin-bottom:8px">Tidak Ada Akses</div>
     <div style="color:#6b7280;font-size:.88rem;margin-bottom:20px">Akun Anda belum memiliki akses ke aplikasi ini. Hubungi admin untuk mendapatkan akses.</div>
