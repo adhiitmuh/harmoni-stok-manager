@@ -289,3 +289,18 @@ td input[type="number"]:focus { outline: none; border-color: var(--green-mid); b
 .ringkas-kartu .rk-ikon { font-size: 13px; font-weight: 700; }
 .ringkas-kartu .rk-val { font-size: 20px; font-weight: 800; margin: 4px 0 2px; }
 .ringkas-kartu .rk-sub { font-size: 11px; opacity: .8; }
+
+/* Banding harga */
+.bh-kartu { border: 1px solid #e5e5e5; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; background: #fff; }
+.bh-kartu table td { padding: 6px 8px; font-size: 13px; vertical-align: middle; }
+.bh-pilih { display: flex; flex-direction: column; align-items: flex-start; width: 100%; text-align: left; border: 1.5px solid #cbd5e1; background: #f8fafc; border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; cursor: pointer; font-family: inherit; font-size: 13px; }
+.bh-pilih:hover { border-color: #034543; background: #ecfdf5; }
+.bh-pilih span { font-size: 11px; color: #666; margin-top: 2px; }
+
+.jenis-opsi { flex: 1; min-width: 200px; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; border: 1.5px solid #e5e5e5; border-radius: 10px; padding: 10px 12px; cursor: pointer; font-size: 13px; }
+.jenis-opsi span { flex-basis: 100%; font-size: 11px; color: #666; padding-left: 22px; }
+.jenis-opsi:has(input:checked) { border-color: #034543; background: #ecfdf5; }
+.badge-jenis { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 8px; }
+
+.bintang { font-size: 18px; color: #d1d5db; cursor: pointer; user-select: none; }
+.bintang.on { color: #f59e0b; }

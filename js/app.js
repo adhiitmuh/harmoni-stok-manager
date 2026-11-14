@@ -35,6 +35,7 @@ function loadPage(id) {
   if (id === 'stok')          loadStok();
   if (id === 'rekonsiliasi')  loadRekonsiliasi();
   if (id === 'supplier')      loadSupplier();
+  if (id === 'banding')       loadBanding();
 }
 
 // ── DASHBOARD ──────────────────────────────────────────────────────────────
@@ -145,6 +146,9 @@ let notaRows = 1;
 
 async function loadNota() {
   renderNotaForm();
+  // Daftar produk untuk dipilih di nota → langsung tertaut SKU (tidak perlu konfirmasi nanti)
+  produkSemua().then(pr => { const dl = document.getElementById('dl-produk-nota'); if (dl && !dl.options.length) dl.innerHTML = pr.map(p => `<option value="${esc(namaProduk(p))} · ${esc(p.sku || p.id)}">`).join('') })
+  muatSupplier().then(l => { const dl = document.getElementById('supplier-list'); if (dl && l.length) { const ada = new Set([...dl.options].map(o => o.value.toUpperCase())); l.forEach(s => { if (!ada.has(s.nama)) dl.insertAdjacentHTML('beforeend', `<option value="${esc(s.nama)}">`) }) } })
   await loadNotaHistory();
 }
 
@@ -154,7 +158,7 @@ function renderNotaForm() {
 
 function notaItemRow(i) {
   return `<tr id="nota-row-${i}">
-    <td><input type="text"   id="nb-nama-${i}"  placeholder="Nama barang sesuai nota" style="width:100%;padding:7px 10px;border:1.5px solid #e5e5e5;border-radius:6px;font-size:13px"></td>
+    <td><input type="text"   id="nb-nama-${i}"  list="dl-produk-nota" placeholder="Ketik nama barang — pilih dari daftar bila ada" style="width:100%;padding:7px 10px;border:1.5px solid #e5e5e5;border-radius:6px;font-size:13px"></td>
     <td><input type="number" id="nb-qty-${i}"   placeholder="0" min="0" style="width:80px;padding:7px 10px;border:1.5px solid #e5e5e5;border-radius:6px;font-size:13px"></td>
     <td><input type="number" id="nb-harga-${i}" placeholder="0" min="0" style="width:140px;padding:7px 10px;border:1.5px solid #e5e5e5;border-radius:6px;font-size:13px"></td>
     <td><input type="text"   id="nb-cat-${i}"   placeholder="opsional" style="width:120px;padding:7px 10px;border:1.5px solid #e5e5e5;border-radius:6px;font-size:13px"></td>
@@ -169,13 +173,32 @@ window.addNotaRow = () => {
   body.insertAdjacentHTML('beforeend', notaItemRow(notaRows++));
 };
 
+const JENIS_NOTA = { nota: ['🧾 Nota', '#ecfdf5', '#166534'], penawaran: ['📋 Penawaran', '#eff6ff', '#1e40af'], catatan: ['📝 Catatan', '#fefce8', '#854d0e'] }
+const jenisNota = () => document.querySelector('input[name="nota-jenis"]:checked')?.value || 'nota'
+window.ubahJenisNota = () => { const j = jenisNota()
+  document.getElementById('nota-tgl-label').textContent = j === 'nota' ? 'Tanggal Nota *' : 'Tanggal harga *'
+  document.getElementById('nota-inv-label').innerHTML = j === 'nota' ? 'No. Invoice <span style="color:#999">(opsional)</span>' : 'Sumber / keterangan <span style="color:#999">(opsional)</span>'
+  document.getElementById('nota-noinv').placeholder = j === 'nota' ? 'Contoh: SF-001' : j === 'penawaran' ? 'cth: price list Nov 2026, min. order 1 lusin' : 'cth: chat WA Pak Budi'
+  document.getElementById('nota-th-harga').textContent = j === 'nota' ? 'Harga Satuan (HPP)' : 'Harga Satuan (ditawarkan)'
+  document.getElementById('btn-simpan-nota').textContent = j === 'nota' ? '💾 Simpan Nota' : '💾 Simpan Harga' }
+// Tempel daftar harga dari chat: "Nama barang 5.500" / "Rp 3rb" / "12k"
+window.tempelDaftarHarga = () => {
+  const baris = document.getElementById('nota-tempel').value.split(/\n+/).map(t => t.trim()).filter(Boolean); let n = 0
+  baris.forEach(t => { const m = t.match(/^(.*?)[\s:=\-–]*(?:rp\.?\s*)?(\d[\d.,]*)\s*(rb|ribu|k)?\s*(?:\/\s*\w+)?\s*$/i); if (!m || !m[1].trim()) return
+    let h = m[3] ? parseFloat(m[2].replace(',', '.')) * 1000 : parseFloat(m[2].replace(/[.,](?=\d{3}\b)/g, '').replace(',', '.')); if (!(h > 0)) return
+    let i = [...Array(notaRows).keys()].find(k => document.getElementById(`nb-nama-${k}`) && !document.getElementById(`nb-nama-${k}`).value)
+    if (i === undefined) { addNotaRow(); i = notaRows - 1 }
+    document.getElementById(`nb-nama-${i}`).value = m[1].replace(/[\s:=\-–]+$/, '').trim(); document.getElementById(`nb-harga-${i}`).value = Math.round(h); n++ })
+  toast(n ? `✅ ${n} baris masuk ke tabel — cek lalu simpan` : 'Tidak ada baris yang terbaca (harga harus di akhir baris)', n ? 'ok' : 'error')
+}
 window.submitNota = async () => {
-  const supplier  = document.getElementById('nota-supplier').value.trim();
+  const supplier  = document.getElementById('nota-supplier').value.trim().toUpperCase();
+  const jenis     = jenisNota();
   const tanggal   = document.getElementById('nota-tanggal').value;
   const no_inv    = document.getElementById('nota-noinv').value.trim();
 
   if (!supplier) { toast('Nama supplier wajib diisi', 'error'); return; }
-  if (!tanggal)  { toast('Tanggal nota wajib diisi', 'error'); return; }
+  if (!tanggal)  { toast('Tanggal wajib diisi', 'error'); return; }
 
   const items = [];
   for (let i = 0; i < notaRows; i++) {
@@ -183,7 +206,8 @@ window.submitNota = async () => {
     const qty   = parseFloat(document.getElementById(`nb-qty-${i}`)?.value || 0);
     const harga = parseFloat(document.getElementById(`nb-harga-${i}`)?.value || 0);
     const cat   = document.getElementById(`nb-cat-${i}`)?.value?.trim();
-    if (nama) items.push({ nama_barang: nama, qty, harga_satuan: harga, catatan: cat || '' });
+    if (nama && jenis !== 'nota' && !(harga > 0)) continue;   // penawaran/catatan tanpa harga tidak berguna
+    if (nama) { const m = nama.match(/^(.*) · ([^·]+)$/), it = { nama_barang: m ? m[1].trim() : nama, qty, harga_satuan: harga, catatan: cat || '' }; if (m) it.sku = m[2].trim(); items.push(it); }
   }
 
   if (items.length === 0) { toast('Minimal satu item harus diisi', 'error'); return; }
@@ -193,10 +217,10 @@ window.submitNota = async () => {
 
   try {
     await addDoc(collection(db, 'nota'), {
-      supplier, tanggal, no_invoice: no_inv, items,
+      supplier, tanggal, no_invoice: no_inv, items, jenis,
       created_at: serverTimestamp(),
     });
-    toast(`✅ ${items.length} item dari ${supplier} disimpan`);
+    toast(`✅ ${items.length} item dari ${supplier} disimpan (${JENIS_NOTA[jenis][0]})`); window._bh = null;
 
     // Reset form
     document.getElementById('nota-supplier').value = '';
@@ -213,20 +237,21 @@ window.submitNota = async () => {
 
 async function loadNotaHistory() {
   const body = document.getElementById('nota-history-body');
-  body.innerHTML = '<tr><td colspan="5" class="loading"><div class="spinner"></div></td></tr>';
+  body.innerHTML = '<tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr>';
   try {
     const snap = await getDocs(query(collection(db, 'nota'), orderBy('created_at', 'desc'), limit(50)));
     const rows = snap.docs.map(d => { const n = d.data(); return `
       <tr>
         <td>${n.tanggal || '-'}</td>
+        <td><span class="badge-jenis" style="background:${JENIS_NOTA[n.jenis || 'nota'][1]};color:${JENIS_NOTA[n.jenis || 'nota'][2]}">${JENIS_NOTA[n.jenis || 'nota'][0]}</span></td>
         <td>${n.supplier || '-'}</td>
         <td>${n.no_invoice || '-'}</td>
         <td>${n.items?.length || 0} item</td>
         <td>${n.items?.map(i => i.nama_barang).join(', ').substring(0, 60) || '-'}…</td>
       </tr>`;}).join('');
-    body.innerHTML = rows || '<tr><td colspan="5" style="text-align:center;color:#999;padding:24px">Belum ada nota</td></tr>';
+    body.innerHTML = rows || '<tr><td colspan="6" style="text-align:center;color:#999;padding:24px">Belum ada nota</td></tr>';
   } catch(e) {
-    body.innerHTML = `<tr><td colspan="5" style="color:red">${e.message}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" style="color:red">${e.message}</td></tr>`;
   }
 }
 
@@ -610,10 +635,12 @@ async function sinkronSupplierKeAnalitik(pasangan, supInfo) {   // pasangan: [[s
 async function loadSupplier() {
   const list = await muatSupplier(true), produk = await produkSemua()
   const jml = {}; produk.forEach(p => { if (p.supplier) jml[p.supplier] = (jml[p.supplier] || 0) + 1 })
+  const kq = {}; try { (await getDocs(collection(db, 'kualitas'))).docs.forEach(d => { const k = d.data(); if (+k.nilai > 0) { const x = kq[k.supplier] = kq[k.supplier] || { t: 0, n: 0 }; x.t += +k.nilai; x.n++ } }) } catch (e) {}
   let dariNota = []
   try { dariNota = [...new Set((await getDocs(collection(db, 'nota'))).docs.map(d => String(d.data().supplier || '').trim().toUpperCase()).filter(Boolean))].filter(n => !list.some(s => s.nama === n)) } catch (e) {}
-  document.getElementById('sup-list').innerHTML = (list.length ? `<div class="table-wrap"><table><thead><tr><th>Supplier</th><th>Lama kirim</th><th>No. WA</th><th>Barang</th><th>Catatan</th><th></th></tr></thead><tbody>${list.map(s => `<tr>
+  document.getElementById('sup-list').innerHTML = (list.length ? `<div class="table-wrap"><table><thead><tr><th>Supplier</th><th>Lama kirim</th><th>Kualitas</th><th>No. WA</th><th>Barang</th><th>Catatan</th><th></th></tr></thead><tbody>${list.map(s => `<tr>
       <td><b>${esc(s.nama)}</b></td><td>${s.lama ? s.lama + ' hari' : '<span style="color:#b91c1c;font-weight:700">belum diisi</span>'}</td>
+      <td style="white-space:nowrap">${kq[s.nama] ? `⭐ ${(kq[s.nama].t / kq[s.nama].n).toFixed(1)} <span style="font-size:11px;color:#666">(${kq[s.nama].n} barang)</span>` : '<span style="color:#999;font-size:12px">belum dinilai</span>'}</td>
       <td>${s.wa ? `<a href="https://api.whatsapp.com/send?phone=${String(s.wa).replace(/\D/g, '').replace(/^0/, '62')}" target="_blank">${esc(s.wa)}</a>` : '—'}</td>
       <td>${num(jml[s.nama] || 0)} <a href="#" onclick="lihatBarangSupplier('${jsStr(s.nama)}');return false" style="font-size:12px">lihat</a></td><td style="font-size:12px;color:#666">${esc(s.catatan || '')}</td>
       <td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="ubahSupplier('${jsStr(s.id)}')">Ubah</button> <button class="btn btn-sm" style="background:#fee2e2;color:#b91c1c" onclick="hapusSupplier('${jsStr(s.id)}')">Hapus</button></td></tr>`).join('')}</tbody></table></div>` : '<p style="color:#999">Belum ada supplier.</p>')
@@ -655,7 +682,7 @@ window.usulSupplierDariNota = async () => {
   const box = document.getElementById('sup-usul'); box.innerHTML = 'Mencocokkan…'
   await muatSupplier()
   const notas = (await getDocs(collection(db, 'nota'))).docs.map(d => d.data()).sort((a, b) => String(b.tanggal || '').localeCompare(String(a.tanggal || '')))
-  const item = []; notas.forEach(n => (n.items || []).forEach(it => { if (it.nama_barang && n.supplier) item.push({ k: kata(it.nama_barang), nama: it.nama_barang, sup: String(n.supplier).trim().toUpperCase(), tgl: n.tanggal || '' }) }))
+  const item = []; notas.filter(n => (n.jenis || 'nota') === 'nota').forEach(n => (n.items || []).forEach(it => { if (it.nama_barang && n.supplier) item.push({ k: kata(it.nama_barang), nama: it.nama_barang, sup: String(n.supplier).trim().toUpperCase(), tgl: n.tanggal || '' }) }))
   if (!item.length) { box.innerHTML = '<p style="color:#999">Belum ada nota dengan nama supplier.</p>'; return }
   const idx = {}; item.forEach((it, i) => it.k.forEach(w => (idx[w] = idx[w] || []).push(i)))
   const produk = (await produkSemua()).filter(p => !p.supplier)
@@ -691,6 +718,123 @@ window.setSupplierMassal = async () => {
     await sinkronSupplierKeAnalitik(rows.map(p => [p.sku || p.id, n]), { [n]: { lama: +(ada?.lama) || 0, wa: ada?.wa || '' } })
     toast(`✅ ${rows.length} produk → ${n}`); searchStok()
   } catch (e) { toast('Gagal: ' + e.message, 'error') }
+}
+
+// ── BANDING HARGA: harga per supplier dari nota + konfirmasi nama barang nota ↔ produk ──
+// cocok_nota/{kunci} = { nama, sku, status: 'cocok'|'otomatis'|'abaikan', oleh, at }  — keputusan disimpan, tidak ditanya lagi
+const kunciNota = t => String(t || '').toUpperCase().replace(/[^A-Z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim()
+const idKunci = k => k.replace(/[\/.#$\[\]]/g, '_').slice(0, 500) || '_'
+const namaProduk = p => (p.name || '') + (p.variant_names && p.variant_names !== 'nan' ? ' ' + p.variant_names : '')
+let _bh = null   // { produk, cocok, harga: {SKU: {SUP: {harga, tanggal, nama, riwayat:[]}}}, antre: [] }
+function kandidatProduk(nama, produk, idxKata) {
+  const k = kata(nama), cand = new Set(); k.forEach(w => (idxKata[w] || []).forEach(i => cand.add(i)))
+  return [...cand].map(i => ({ p: produk[i], skor: mirip(k, kata(namaProduk(produk[i]))) })).sort((a, b) => b.skor - a.skor).slice(0, 3)
+}
+async function hitungBandingHarga() {
+  const [produk, cocokSnap, notaSnap, kualSnap] = await Promise.all([produkSemua(), getDocs(collection(db, 'cocok_nota')), getDocs(collection(db, 'nota')), getDocs(collection(db, 'kualitas')).catch(() => ({ docs: [] }))])
+  const kual = {}; kualSnap.docs.forEach(d => { const k = d.data(); if (k.sku && k.supplier) kual[String(k.sku).toUpperCase() + '|' + k.supplier] = k })
+  const cocok = {}; cocokSnap.docs.forEach(d => { cocok[d.id] = d.data() })
+  const idxKata = {}; produk.forEach((p, i) => kata(namaProduk(p)).forEach(w => (idxKata[w] = idxKata[w] || []).push(i)))
+  const bySku = {}; produk.forEach(p => { bySku[String(p.sku || p.id).toUpperCase()] = p })
+  const harga = {}, antre = {}, otomatis = []
+  const catat = (sku, sup, it, n) => { const K = String(sku).toUpperCase(); const h = (harga[K] = harga[K] || {}); const e = h[sup] = h[sup] || { riwayat: [] }
+    const jenis = n.jenis || 'nota'; if (jenis === 'nota') e.pernahBeli = true
+    e.riwayat.push({ tanggal: n.tanggal || '', harga: +it.harga_satuan || 0, qty: +it.qty || 0, nama: it.nama_barang, jenis })
+    if (!e.tanggal || String(n.tanggal || '') >= e.tanggal) Object.assign(e, { harga: +it.harga_satuan || 0, tanggal: n.tanggal || '', nama: it.nama_barang, jenis }) }
+  notaSnap.docs.forEach(d => { const n = d.data(), sup = String(n.supplier || '').trim().toUpperCase(); if (!sup) return
+    ;(n.items || []).forEach(it => { if (!it.nama_barang || !(+it.harga_satuan > 0)) return
+      if (it.sku && bySku[String(it.sku).toUpperCase()]) return catat(it.sku, sup, it, n)
+      const kk = idKunci(kunciNota(it.nama_barang)), c = cocok[kk]
+      if (c) { if (c.sku && c.status !== 'abaikan') catat(c.sku, sup, it, n); return }
+      const kand = kandidatProduk(it.nama_barang, produk, idxKata)
+      // Cocok otomatis hanya kalau sangat mirip & jelas beda dari kandidat kedua
+      if (kand[0] && kand[0].skor >= 0.85 && (!kand[1] || kand[1].skor <= kand[0].skor - 0.15)) { catat(kand[0].p.sku || kand[0].p.id, sup, it, n); if (!cocok[kk]) { cocok[kk] = { sku: kand[0].p.sku || kand[0].p.id, status: 'otomatis' }; otomatis.push([kk, it.nama_barang, cocok[kk].sku]) } return }
+      const a = antre[kk] = antre[kk] || { kunci: kk, nama: it.nama_barang, kand, sup: new Set(), n: 0, harga: 0, tanggal: '' }
+      a.sup.add(sup); a.n++; if (String(n.tanggal || '') >= a.tanggal) { a.harga = +it.harga_satuan || 0; a.tanggal = n.tanggal || '' } }) })
+  Object.values(harga).forEach(h => Object.values(h).forEach(e => e.riwayat.sort((a, b) => String(b.tanggal).localeCompare(String(a.tanggal)))))
+  // Simpan pencocokan otomatis supaya hasilnya tetap (dan bisa dikoreksi)
+  for (let i = 0; i < otomatis.length; i += 400) { const b = writeBatch(db); otomatis.slice(i, i + 400).forEach(([kk, nama, sku]) => b.set(doc(db, 'cocok_nota', kk), { nama, sku, status: 'otomatis', at: serverTimestamp() })); await b.commit() }
+  _bh = { produk, bySku, cocok, harga, idxKata, kual, antre: Object.values(antre).sort((a, b) => b.n - a.n) }
+  kirimHargaKeAnalitik()
+  return _bh
+}
+async function kirimHargaKeAnalitik() {   // ringkas: {SKU: {SUP: [harga, tanggal]}} untuk Daftar Belanja
+  const d = hiDb(); if (!d || !_bh) return
+  const h = {}; Object.entries(_bh.harga).forEach(([K, s]) => { h[K] = {}; Object.entries(s).forEach(([sup, e]) => h[K][sup] = [e.harga, e.tanggal, _bh.kual[K + '|' + sup]?.nilai || 0, e.jenis || 'nota']) })
+  try { await d.collection('settings').doc('modal_produk').update({ h }) } catch (e) { if (e.code === 'not-found') { await bangunModalAnalitik(true); try { await d.collection('settings').doc('modal_produk').update({ h }) } catch (e2) {} } }
+}
+async function loadBanding() {
+  document.getElementById('bh-antre').innerHTML = document.getElementById('bh-tabel').innerHTML = '<div class="loading"><div class="spinner"></div><span>Mencocokkan nota…</span></div>'
+  await muatSupplier(); await hitungBandingHarga(); renderAntre(); renderBanding()
+  const dl = document.getElementById('dl-produk'); if (dl && !dl.options.length) dl.innerHTML = _bh.produk.map(p => `<option value="${esc(namaProduk(p))} · ${esc(p.sku || p.id)}">`).join('')
+}
+const rpS = n => 'Rp ' + Math.round(+n || 0).toLocaleString('id-ID')
+function renderAntre() {
+  const box = document.getElementById('bh-antre'), a = _bh.antre
+  document.getElementById('bh-antre-n').textContent = a.length ? `(${a.length})` : ''
+  if (!a.length) { box.innerHTML = '<p style="color:#166534;font-size:13px">✅ Semua nama barang di nota sudah dicocokkan.</p>'; return }
+  box.innerHTML = `<p style="font-size:13px;color:#666;margin-bottom:10px">Nama barang di nota ini <b>mirip</b> dengan beberapa produk — pilih yang benar. Jawaban disimpan, nama yang sama tidak ditanya lagi.</p>`
+    + a.slice(0, 15).map((x, i) => `<div class="bh-kartu" id="bh-a-${i}">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b style="font-size:14px">"${esc(x.nama)}"</b><div style="font-size:12px;color:#666">${[...x.sup].map(esc).join(', ')} · ${rpS(x.harga)} · ${esc(x.tanggal)} · muncul ${x.n}× di nota</div></div></div>
+      <div style="font-size:12px;font-weight:700;margin:8px 0 4px">Ini produk yang mana?</div>
+      ${x.kand.map(k => `<button class="bh-pilih" onclick="jawabCocok(${i},'${jsStr(k.p.sku || k.p.id)}')"><b>${esc(namaProduk(k.p))}</b><span>${esc(k.p.sku || k.p.id)} · mirip ${Math.round(k.skor * 100)}%${modalP(k.p) ? ' · modal ' + rpS(modalP(k.p)) : ''}</span></button>`).join('')}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"><input list="dl-produk" id="bh-cari-${i}" placeholder="🔍 Bukan itu — cari produk lain…" style="flex:1;min-width:200px;padding:7px 10px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:13px">
+        <button class="btn btn-primary btn-sm" onclick="jawabCocokCari(${i})">Pakai</button>
+        <button class="btn btn-sm" style="background:#f1f5f9;color:#475569" onclick="jawabCocok(${i},'')">Bukan barang stok / abaikan</button></div></div>`).join('')
+    + (a.length > 15 ? `<p style="font-size:12px;color:#666">… ${a.length - 15} lagi muncul setelah yang di atas dijawab.</p>` : '')
+}
+window.jawabCocok = async (i, sku) => {
+  const x = _bh.antre[i]; if (!x) return
+  try { await setDoc(doc(db, 'cocok_nota', x.kunci), { nama: x.nama, sku: sku || null, status: sku ? 'cocok' : 'abaikan', oleh: window._harmoniUserName || '', at: serverTimestamp() })
+    document.getElementById('bh-a-' + i).style.opacity = .4; toast(sku ? `✅ "${x.nama}" = ${sku}` : 'Diabaikan')
+    clearTimeout(window._bhT); window._bhT = setTimeout(async () => { await hitungBandingHarga(); renderAntre(); renderBanding() }, 900)
+  } catch (e) { toast('Gagal: ' + e.message, 'error') }
+}
+window.jawabCocokCari = i => { const v = document.getElementById('bh-cari-' + i).value, m = v.match(/ · ([^·]+)$/)
+  const sku = m ? m[1].trim() : ''; if (!sku || !_bh.bySku[sku.toUpperCase()]) return toast('Pilih produk dari daftar yang muncul saat mengetik', 'error'); jawabCocok(i, sku) }
+function renderBanding() {
+  const q = (document.getElementById('bh-cari')?.value || '').trim().toUpperCase(), semua = document.getElementById('bh-semua')?.checked
+  let rows = Object.entries(_bh.harga).map(([K, s]) => ({ K, p: _bh.bySku[K], s: Object.entries(s).sort((a, b) => a[1].harga - b[1].harga) })).filter(r => r.p)
+  if (!semua) rows = rows.filter(r => r.s.length >= 2)
+  if (q) rows = rows.filter(r => (namaProduk(r.p) + ' ' + r.K).toUpperCase().includes(q))
+  // Paling besar potensi hematnya di atas (utama bukan yang termurah × laku)
+  // Rekomendasi = termurah di antara supplier yang kualitasnya tidak rendah (⭐1–2 tidak diusulkan)
+  const nilai = (K, n) => +(_bh.kual[K + '|' + n]?.nilai) || 0
+  const terbaik = r => r.s.find(([n]) => !(nilai(r.K, n) > 0 && nilai(r.K, n) <= 2))
+  const hemat = r => { const u = r.s.find(([n]) => n === r.p.supplier), b = terbaik(r); return u && b && b[0] !== u[0] && b[1].harga < u[1].harga ? u[1].harga - b[1].harga : 0 }
+  rows.sort((a, b) => hemat(b) * Math.max(1, lakuSku(b.p)) - hemat(a) * Math.max(1, lakuSku(a.p)) || b.s.length - a.s.length)
+  const lamaSup = n => +(supplierList?.find(x => x.nama === n)?.lama) || 0
+  document.getElementById('bh-tabel').innerHTML = rows.length ? `<div style="font-size:12px;color:#666;margin-bottom:8px">${rows.length} barang · harga = harga beli terakhir di nota tiap supplier</div>` + rows.slice(0, 200).map(r => {
+    const min = r.s[0][1].harga, h = hemat(r), best = terbaik(r)
+    return `<div class="bh-kartu"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>${esc(namaProduk(r.p))}</b> <span style="font-size:12px;color:#666">${esc(r.K)}${lakuSku(r.p) ? ' · laku ' + lakuSku(r.p) + '/bln' : ''}</span></div>
+      ${h > 0 ? `<span style="font-size:12px;font-weight:700;color:#166534;background:#dcfce7;border-radius:999px;padding:2px 10px">pindah ke ${esc(best[0])} hemat ${rpS(h)}/pcs${lakuSku(r.p) ? ' ≈ ' + rpS(h * lakuSku(r.p)) + '/bln' : ''}</span>` : ''}</div>
+      <table style="margin-top:6px"><tbody>${r.s.map(([n, e]) => `<tr><td style="width:40%">${n === r.p.supplier ? '⭐ ' : ''}<b>${esc(n)}</b>${n === r.p.supplier ? ' <span style="font-size:11px;color:#666">(utama)</span>' : ''}</td>
+        <td class="number" style="font-weight:700;color:${e.harga === min ? '#166534' : '#b91c1c'}">${rpS(e.harga)}${e.harga === min && r.s.length > 1 ? ' ✓ termurah' : ` <span style="font-size:11px;font-weight:400">(+${rpS(e.harga - min)})</span>`}${r.s.length > 1 && best && best[0] === n ? '<div style="font-size:11px;color:#166534">🏆 rekomendasi (harga + kualitas)</div>' : ''}</td>
+        <td>${bintang(r.K, n)}</td>
+        <td style="font-size:12px;color:#666"><span class="badge-jenis" style="background:${JENIS_NOTA[e.jenis][1]};color:${JENIS_NOTA[e.jenis][2]}">${JENIS_NOTA[e.jenis][0]}</span>${e.pernahBeli ? '' : ' <span class="badge-jenis" style="background:#fae8ff;color:#86198f">calon</span>'} ${esc(e.tanggal)}${lamaSup(n) ? ' · kirim ' + lamaSup(n) + ' hr' : ''}<br><span style="font-size:11px">"${esc(e.nama)}"</span></td>
+        <td>${n !== r.p.supplier ? `<button class="btn btn-secondary btn-sm" onclick="jadikanUtama('${jsStr(r.p.id)}','${jsStr(n)}')">⭐ Jadikan utama</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` }).join('')
+    : `<p style="color:#999;font-size:13px">${semua ? 'Belum ada harga dari nota / penawaran.' : 'Belum ada barang yang dibeli dari 2 supplier atau lebih. Centang "tampilkan juga 1 supplier" untuk melihat semua.'}</p>`
+}
+window.renderBanding = renderBanding
+// Kualitas per barang per supplier: ⭐1–5 + catatan (bahan tipis, jahitan, warna luntur, dsb.)
+function bintang(K, n) {
+  const k = _bh.kual[K + '|' + n] || {}, v = +k.nilai || 0, a = jsStr(K), b = jsStr(n)
+  return `<div style="white-space:nowrap">${[1, 2, 3, 4, 5].map(i => `<span class="bintang${i <= v ? ' on' : ''}" title="Kualitas ${i}" onclick="beriNilai('${a}','${b}',${i})">★</span>`).join('')}
+    <a href="#" onclick="catatanKualitas('${a}','${b}');return false" style="font-size:11px;margin-left:4px">${k.catatan ? '📝' : '+ catatan'}</a></div>
+    ${v && v <= 2 ? '<div style="font-size:11px;color:#b91c1c;font-weight:700">⚠️ kualitas rendah</div>' : ''}${k.catatan ? `<div style="font-size:11px;color:#666;max-width:180px;white-space:normal">${esc(k.catatan)}</div>` : ''}`
+}
+async function simpanKualitas(K, n, ubah) {
+  const id = (K + '__' + idSup(n)).replace(/[\/]/g, '_'), lama = _bh.kual[K + '|' + n] || {}, baru = { sku: K, supplier: n, nilai: lama.nilai || 0, catatan: lama.catatan || '', ...ubah, oleh: window._harmoniUserName || '', at: serverTimestamp() }
+  try { await setDoc(doc(db, 'kualitas', id), baru); _bh.kual[K + '|' + n] = baru; renderBanding(); kirimHargaKeAnalitik() } catch (e) { toast('Gagal: ' + e.message, 'error') }
+}
+window.beriNilai = (K, n, v) => { const lama = +(_bh.kual[K + '|' + n]?.nilai) || 0; simpanKualitas(K, n, { nilai: lama === v ? 0 : v }) }
+window.catatanKualitas = (K, n) => { const lama = _bh.kual[K + '|' + n]?.catatan || ''; const c = prompt(`Catatan kualitas ${n} untuk ${K}:\n(cth: bahan tipis, jahitan rapi, warna luntur, ukuran kecil)`, lama); if (c === null) return; simpanKualitas(K, n, { catatan: c.trim() }) }
+window.jadikanUtama = async (id, n) => {
+  const p = _bh.produk.find(x => x.id === id); if (!p) return
+  try { await muatSupplier(); if (!supplierList.some(s => s.nama === n)) { await setDoc(doc(db, 'supplier', idSup(n)), { nama: n, lama: 0, wa: '', catatan: 'dibuat dari nota', updated_at: serverTimestamp() }); await muatSupplier(true) }
+    await updateDoc(doc(db, 'products', id), { supplier: n, updated_at: serverTimestamp() }); p.supplier = n
+    const si = supplierList.find(s => s.nama === n); sinkronSupplierKeAnalitik([[p.sku || id, n]], { [n]: { lama: +si?.lama || 0, wa: si?.wa || '' } })
+    toast(`⭐ ${n} jadi supplier utama ${p.sku || id}`); renderBanding() } catch (e) { toast('Gagal: ' + e.message, 'error') }
 }
 
 // ── UPDATE STOK ────────────────────────────────────────────────────────────

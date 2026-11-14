@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <meta name="theme-color" content="#034543">
   <title>Harmoni Stok Manager</title>
-  <link rel="stylesheet" href="css/style.css?v=20261114b">
+  <link rel="stylesheet" href="css/style.css?v=20261114c">
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
@@ -59,6 +59,9 @@
     </button>
     <button class="nav-item" data-page="supplier">
       <span class="icon">🏭</span> Supplier
+    </button>
+    <button class="nav-item" data-page="banding">
+      <span class="icon">💰</span> Banding Harga
     </button>
     <button class="nav-item" data-page="rekonsiliasi">
       <span class="icon">🔄</span> Rekonsiliasi Stok
@@ -275,14 +278,20 @@
 
   <!-- INPUT NOTA -->
   <div id="nota" class="page">
-    <h1 class="page-title">Input Nota Baru</h1>
-    <p class="page-subtitle">Masukkan data dari nota/invoice fisik supplier</p>
+    <h1 class="page-title">Input Nota / Harga Supplier</h1>
+    <p class="page-subtitle">Nota pembelian, penawaran / price list calon supplier, atau catatan harga — semuanya masuk ke Banding Harga</p>
 
     <div class="card">
-      <div class="form-section-title">Info Nota</div>
+      <div class="form-section-title">Jenis</div>
+      <div id="nota-jenis-pilih" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+        <label class="jenis-opsi"><input type="radio" name="nota-jenis" value="nota" checked onchange="ubahJenisNota()"> 🧾 <b>Nota pembelian</b><span>sudah beli — harga jadi acuan modal</span></label>
+        <label class="jenis-opsi"><input type="radio" name="nota-jenis" value="penawaran" onchange="ubahJenisNota()"> 📋 <b>Penawaran / price list</b><span>dari supplier / calon supplier, belum beli</span></label>
+        <label class="jenis-opsi"><input type="radio" name="nota-jenis" value="catatan" onchange="ubahJenisNota()"> 📝 <b>Catatan harga</b><span>dari WA, telepon, survei pasar</span></label>
+      </div>
+      <div class="form-section-title">Info</div>
       <div class="form-grid">
         <div class="form-group">
-          <label>Tanggal Nota *</label>
+          <label id="nota-tgl-label">Tanggal Nota *</label>
           <input type="date" id="nota-tanggal">
         </div>
         <div class="form-group">
@@ -302,23 +311,28 @@
           </datalist>
         </div>
         <div class="form-group">
-          <label>No. Invoice <span style="color:#999">(opsional)</span></label>
+          <label id="nota-inv-label">No. Invoice <span style="color:#999">(opsional)</span></label>
           <input type="text" id="nota-noinv" placeholder="Contoh: SF-001">
         </div>
       </div>
 
       <div class="form-section-title">Item Barang</div>
+      <details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:13px;font-weight:600;color:#034543">📋 Tempel daftar harga (dari chat WA / catatan)</summary>
+        <textarea id="nota-tempel" rows="5" placeholder="Satu barang per baris, harga di akhir. Contoh:&#10;Tali koor satpam hitam 5.500&#10;Pluit putih besar Rp 3rb&#10;Kopel satpam - 12k" style="width:100%;margin-top:8px;padding:8px 10px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:13px;font-family:inherit"></textarea>
+        <button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="tempelDaftarHarga()">Masukkan ke tabel</button>
+      </details>
       <div class="table-wrap" style="margin-bottom:12px">
         <table class="nota-items-table">
           <thead><tr>
             <th style="min-width:280px">Nama Barang</th>
             <th style="width:80px">Qty</th>
-            <th style="width:160px">Harga Satuan (HPP)</th>
+            <th style="width:160px" id="nota-th-harga">Harga Satuan (HPP)</th>
             <th style="width:130px">Catatan</th>
             <th style="width:40px"></th>
           </tr></thead>
           <tbody id="nota-items-body"></tbody>
         </table>
+        <datalist id="dl-produk-nota"></datalist>
       </div>
 
       <div style="display:flex;gap:12px">
@@ -332,7 +346,7 @@
       <div class="table-wrap">
         <table>
           <thead><tr>
-            <th>Tanggal</th><th>Supplier</th><th>No. Invoice</th>
+            <th>Tanggal</th><th>Jenis</th><th>Supplier</th><th>No. Invoice</th>
             <th>Jumlah Item</th><th>Item</th>
           </tr></thead>
           <tbody id="nota-history-body">
@@ -425,6 +439,25 @@
       <button class="btn btn-primary btn-sm" onclick="usulSupplierDariNota()">Cari usulan dari nota</button>
       <div id="sup-usul" style="margin-top:12px"></div>
     </div>
+  </div>
+
+  <!-- BANDING HARGA -->
+  <div id="banding" class="page">
+    <h1 class="page-title">Banding Harga Supplier</h1>
+    <p class="page-subtitle">Harga terakhir tiap supplier per barang (dari nota, penawaran Harga beli terakhir tiap supplier per barang — diambil otomatis dari nota catatan harga) + nilai kualitas</p>
+    <div class="card">
+      <div class="card-title">🔔 Perlu konfirmasi Bapak <span id="bh-antre-n" style="color:#b91c1c"></span></div>
+      <div id="bh-antre"></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <div class="card-title" style="margin:0">⚖️ Perbandingan harga</div>
+        <input type="search" id="bh-cari" placeholder="🔍 Cari barang…" oninput="renderBanding()" style="flex:1;min-width:200px;padding:8px 12px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:13px">
+        <label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="bh-semua" onchange="renderBanding()"> tampilkan juga 1 supplier</label>
+      </div>
+      <div id="bh-tabel"></div>
+    </div>
+    <datalist id="dl-produk"></datalist>
   </div>
 
   <div id="rekonsiliasi" class="page">
