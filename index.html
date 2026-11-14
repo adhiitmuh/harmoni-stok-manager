@@ -57,6 +57,9 @@
     <button class="nav-item" data-page="stok">
       <span class="icon">📦</span> Update Stok
     </button>
+    <button class="nav-item" data-page="supplier">
+      <span class="icon">🏭</span> Supplier
+    </button>
     <button class="nav-item" data-page="rekonsiliasi">
       <span class="icon">🔄</span> Rekonsiliasi Stok
     </button>
@@ -232,7 +235,10 @@
           <option value="modal_naik">📈 Modal naik dari Olsera</option>
           <option value="margin">⚠️ Margin tipis / rugi</option>
           <option value="mati">🧊 Tidak laku 6 bulan (modal tertahan)</option>
+          <option value="belum_supplier">🏭 Belum ada supplier (laku / ada stok)</option>
         </select>
+        <button class="btn btn-secondary btn-sm" onclick="setSupplierMassal()" title="Isi supplier untuk semua produk yang sedang tampil">🏭 Set supplier yang tampil</button>
+        <datalist id="dl-sup"></datalist>
         <span id="stok-count" style="font-size:13px;color:#666"></span>
       </div>
     </div>
@@ -397,6 +403,30 @@
   </div>
 
   <!-- REKONSILIASI -->
+  <!-- SUPPLIER -->
+  <div id="supplier" class="page">
+    <h1 class="page-title">Supplier</h1>
+    <p class="page-subtitle">Daftar supplier & lama kirimnya — dipakai Analitik untuk menghitung kapan & berapa harus pesan</p>
+    <div class="card">
+      <div class="card-title" id="sup-form-judul">+ Tambah supplier</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">
+        <div class="form-group" style="margin:0"><label>Nama supplier *</label><input id="sup-nama" placeholder="cth: CV Sumber Jaya"></div>
+        <div class="form-group" style="margin:0"><label>No. WA</label><input id="sup-wa" type="tel" placeholder="08xx"></div>
+        <div class="form-group" style="margin:0"><label>Lama kirim (hari) *</label><input id="sup-lama" type="number" min="0" placeholder="cth: 7"></div>
+        <div class="form-group" style="margin:0"><label>Catatan</label><input id="sup-cat" placeholder="cth: min. order 1 lusin"></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-primary" onclick="simpanSupplier()">💾 Simpan supplier</button><button class="btn btn-secondary" onclick="resetFormSupplier()">Batal</button></div>
+      <p style="font-size:12px;color:#666;margin-top:8px">Lama kirim = dari pesan sampai barang tiba. Analitik menambah stok yang dibutuhkan selama menunggu (laku per hari × lama kirim).</p>
+    </div>
+    <div class="card"><div class="card-title">Daftar supplier</div><div id="sup-list" style="font-size:13px">Memuat…</div></div>
+    <div class="card">
+      <div class="card-title">🔎 Isi supplier per barang dari riwayat nota</div>
+      <p style="font-size:13px;color:#666;margin-bottom:10px">Nama barang di nota dicocokkan dengan nama produk. Usulan yang mirip ditandai — cek dulu, lalu simpan.</p>
+      <button class="btn btn-primary btn-sm" onclick="usulSupplierDariNota()">Cari usulan dari nota</button>
+      <div id="sup-usul" style="margin-top:12px"></div>
+    </div>
+  </div>
+
   <div id="rekonsiliasi" class="page">
     <h1 class="page-title">Rekonsiliasi Stok</h1>
     <p class="page-subtitle">Perbandingan data antara gudang dan toko</p>

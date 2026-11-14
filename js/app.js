@@ -1,7 +1,7 @@
 import { db } from './firebase-config.js';
 import {
   collection, getDocs, addDoc, doc, updateDoc,
-  query, where, orderBy, limit, serverTimestamp, writeBatch
+  query, where, orderBy, limit, serverTimestamp, writeBatch, setDoc, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 // ── Toast ──────────────────────────────────────────────────────────────────
@@ -34,6 +34,7 @@ function loadPage(id) {
   if (id === 'sinkron')       loadSinkron();
   if (id === 'stok')          loadStok();
   if (id === 'rekonsiliasi')  loadRekonsiliasi();
+  if (id === 'supplier')      loadSupplier();
 }
 
 // ── DASHBOARD ──────────────────────────────────────────────────────────────
@@ -572,10 +573,124 @@ async function bangunModalAnalitik(paksa, produk) {
   const d = hiDb(); if (!d || (_modalDibangun && !paksa)) return
   try {
     const list = produk || (await getDocs(collection(db, 'products'))).docs.map(x => x.data())
-    const m = {}; list.forEach(p => { const v = (+p.buy_price_toko > 0 ? +p.buy_price_toko : +p.buy_price_gudang) || 0; if (p.sku && v > 0) m[String(p.sku).toUpperCase()] = v })
-    await d.collection('settings').doc('modal_produk').set({ m, updated_at: firebase.firestore.FieldValue.serverTimestamp(), updated_by: (window._harmoniUserName || '') + ' (Stok Manager)' })
+    const m = {}, sk = {}; list.forEach(p => { const K = String(p.sku || '').toUpperCase(), v = (+p.buy_price_toko > 0 ? +p.buy_price_toko : +p.buy_price_gudang) || 0; if (K && v > 0) m[K] = v; if (K && p.supplier) sk[K] = p.supplier })
+    const sup = {}; (await muatSupplier(true)).forEach(x => { sup[x.nama] = { lama: +x.lama || 0, wa: x.wa || '' } })
+    await d.collection('settings').doc('modal_produk').set({ m, s: sk, sup, updated_at: firebase.firestore.FieldValue.serverTimestamp(), updated_by: (window._harmoniUserName || '') + ' (Stok Manager)' })
     _modalDibangun = true
   } catch (e) { console.warn('bangun modal', e) }
+}
+
+// ── SUPPLIER ───────────────────────────────────────────────────────────────
+// Filter "barang supplier X" hilang begitu cari / kategori / kondisi diubah (capture: sebelum handler searchStok)
+document.addEventListener('input', e => { if (['stok-search', 'stok-kat', 'stok-kondisi'].includes(e.target.id)) window._filterSupplier = null }, true)
+document.addEventListener('change', e => { if (['stok-kat', 'stok-kondisi'].includes(e.target.id)) window._filterSupplier = null }, true)
+let supplierList = null
+const idSup = n => String(n).trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '') || 'SUP'
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const jsStr = t => String(t ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;')
+async function muatSupplier(paksa) {
+  if (supplierList && !paksa) return supplierList
+  supplierList = (await getDocs(collection(db, 'supplier'))).docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(a.nama).localeCompare(String(b.nama)))
+  const dl = document.getElementById('dl-sup'); if (dl) dl.innerHTML = supplierList.map(s => `<option value="${esc(s.nama)}">`).join('')
+  return supplierList
+}
+async function produkSemua() {
+  if (!stokAllData.length) { const snap = await getDocs(collection(db, 'products')); stokAllData = snap.docs.map(d => ({ id: d.id, ...d.data() })) }
+  return stokAllData
+}
+async function sinkronSupplierKeAnalitik(pasangan, supInfo) {   // pasangan: [[sku, supplier]], supInfo: {nama: {lama, wa} | null}
+  const d = hiDb(); if (!d) return
+  try {
+    const args = [], FV = firebase.firestore.FieldValue
+    ;(pasangan || []).forEach(([sku, s]) => args.push(new firebase.firestore.FieldPath('s', String(sku).toUpperCase()), s || FV.delete()))
+    Object.entries(supInfo || {}).forEach(([n, v]) => args.push(new firebase.firestore.FieldPath('sup', n), v || FV.delete()))
+    if (args.length) await d.collection('settings').doc('modal_produk').update(...args)
+  } catch (e) { if (e.code === 'not-found') await bangunModalAnalitik(true); else console.warn('sinkron supplier', e) }
+}
+async function loadSupplier() {
+  const list = await muatSupplier(true), produk = await produkSemua()
+  const jml = {}; produk.forEach(p => { if (p.supplier) jml[p.supplier] = (jml[p.supplier] || 0) + 1 })
+  let dariNota = []
+  try { dariNota = [...new Set((await getDocs(collection(db, 'nota'))).docs.map(d => String(d.data().supplier || '').trim().toUpperCase()).filter(Boolean))].filter(n => !list.some(s => s.nama === n)) } catch (e) {}
+  document.getElementById('sup-list').innerHTML = (list.length ? `<div class="table-wrap"><table><thead><tr><th>Supplier</th><th>Lama kirim</th><th>No. WA</th><th>Barang</th><th>Catatan</th><th></th></tr></thead><tbody>${list.map(s => `<tr>
+      <td><b>${esc(s.nama)}</b></td><td>${s.lama ? s.lama + ' hari' : '<span style="color:#b91c1c;font-weight:700">belum diisi</span>'}</td>
+      <td>${s.wa ? `<a href="https://api.whatsapp.com/send?phone=${String(s.wa).replace(/\D/g, '').replace(/^0/, '62')}" target="_blank">${esc(s.wa)}</a>` : '—'}</td>
+      <td>${num(jml[s.nama] || 0)} <a href="#" onclick="lihatBarangSupplier('${jsStr(s.nama)}');return false" style="font-size:12px">lihat</a></td><td style="font-size:12px;color:#666">${esc(s.catatan || '')}</td>
+      <td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="ubahSupplier('${jsStr(s.id)}')">Ubah</button> <button class="btn btn-sm" style="background:#fee2e2;color:#b91c1c" onclick="hapusSupplier('${jsStr(s.id)}')">Hapus</button></td></tr>`).join('')}</tbody></table></div>` : '<p style="color:#999">Belum ada supplier.</p>')
+    + (dariNota.length ? `<div style="margin-top:12px;font-size:12px;color:#92400e;background:#fffbeb;border-radius:8px;padding:8px 10px">Ada di nota tapi belum terdaftar: ${dariNota.map(n => `<a href="#" onclick="isiFormSupplier('${jsStr(n)}');return false"><b>${esc(n)}</b></a>`).join(', ')} — ketuk untuk menambahkan.</div>` : '')
+}
+window.isiFormSupplier = n => { resetFormSupplier(); document.getElementById('sup-nama').value = n; scrollTo({ top: 0, behavior: 'smooth' }); document.getElementById('sup-lama').focus() }
+window.resetFormSupplier = () => { ['sup-nama', 'sup-wa', 'sup-lama', 'sup-cat'].forEach(i => document.getElementById(i).value = ''); document.getElementById('sup-nama').dataset.lama = ''; document.getElementById('sup-form-judul').textContent = '+ Tambah supplier' }
+window.ubahSupplier = id => { const s = supplierList.find(x => x.id === id); if (!s) return
+  document.getElementById('sup-nama').value = s.nama; document.getElementById('sup-nama').dataset.lama = s.nama; document.getElementById('sup-wa').value = s.wa || ''; document.getElementById('sup-lama').value = s.lama || ''; document.getElementById('sup-cat').value = s.catatan || ''
+  document.getElementById('sup-form-judul').textContent = '✏️ Ubah supplier ' + s.nama; scrollTo({ top: 0, behavior: 'smooth' }) }
+window.simpanSupplier = async () => {
+  const nama = document.getElementById('sup-nama').value.trim().toUpperCase(), lamaNama = document.getElementById('sup-nama').dataset.lama || ''
+  const lama = parseInt(document.getElementById('sup-lama').value) || 0, wa = document.getElementById('sup-wa').value.trim(), catatan = document.getElementById('sup-cat').value.trim()
+  if (!nama) return toast('Isi nama supplier', 'error'); if (!lama) return toast('Isi lama kirim (hari)', 'error')
+  await muatSupplier()
+  if (lamaNama !== nama && supplierList.some(s => s.nama === nama)) return toast('Supplier itu sudah ada', 'error')
+  try {
+    await setDoc(doc(db, 'supplier', idSup(nama)), { nama, lama, wa, catatan, updated_at: serverTimestamp() })
+    const supInfo = { [nama]: { lama, wa } }, pas = []
+    if (lamaNama && lamaNama !== nama) {   // ganti nama → pindahkan barangnya
+      await deleteDoc(doc(db, 'supplier', idSup(lamaNama))); supInfo[lamaNama] = null
+      const produk = (await produkSemua()).filter(p => p.supplier === lamaNama)
+      for (let i = 0; i < produk.length; i += 400) { const b = writeBatch(db); produk.slice(i, i + 400).forEach(p => { b.update(doc(db, 'products', p.id), { supplier: nama }); p.supplier = nama; pas.push([p.sku || p.id, nama]) }); await b.commit() }
+    }
+    await sinkronSupplierKeAnalitik(pas, supInfo); toast('✅ Supplier ' + nama + ' disimpan'); resetFormSupplier(); loadSupplier()
+  } catch (e) { toast('Gagal: ' + e.message, 'error') }
+}
+window.hapusSupplier = async id => { const s = supplierList.find(x => x.id === id); if (!s) return
+  const produk = (await produkSemua()).filter(p => p.supplier === s.nama)
+  if (!confirm(`Hapus supplier ${s.nama}?${produk.length ? `\n${produk.length} barang memakai supplier ini — supplier di barang-barang itu ikut dikosongkan.` : ''}`)) return
+  try { await deleteDoc(doc(db, 'supplier', id)); const pas = []
+    for (let i = 0; i < produk.length; i += 400) { const b = writeBatch(db); produk.slice(i, i + 400).forEach(p => { b.update(doc(db, 'products', p.id), { supplier: '' }); p.supplier = ''; pas.push([p.sku || p.id, '']) }); await b.commit() }
+    await sinkronSupplierKeAnalitik(pas, { [s.nama]: null }); toast('Supplier dihapus'); loadSupplier() } catch (e) { toast('Gagal: ' + e.message, 'error') } }
+window.lihatBarangSupplier = n => { document.getElementById('stok-search').value = ''; document.getElementById('stok-kat').value = ''; document.getElementById('stok-kondisi').value = ''; window._filterSupplier = n; document.querySelector('.nav-item[data-page="stok"]').click() }
+// Usulan supplier per barang dari riwayat nota (kemiripan kata nama barang)
+const kata = t => new Set(String(t || '').toUpperCase().replace(/[^A-Z0-9 ]+/g, ' ').split(/\s+/).filter(w => w.length > 1))
+const mirip = (a, b) => { let s = 0; a.forEach(w => { if (b.has(w)) s++ }); return s / Math.max(1, Math.max(a.size, b.size)) }
+window.usulSupplierDariNota = async () => {
+  const box = document.getElementById('sup-usul'); box.innerHTML = 'Mencocokkan…'
+  await muatSupplier()
+  const notas = (await getDocs(collection(db, 'nota'))).docs.map(d => d.data()).sort((a, b) => String(b.tanggal || '').localeCompare(String(a.tanggal || '')))
+  const item = []; notas.forEach(n => (n.items || []).forEach(it => { if (it.nama_barang && n.supplier) item.push({ k: kata(it.nama_barang), nama: it.nama_barang, sup: String(n.supplier).trim().toUpperCase(), tgl: n.tanggal || '' }) }))
+  if (!item.length) { box.innerHTML = '<p style="color:#999">Belum ada nota dengan nama supplier.</p>'; return }
+  const idx = {}; item.forEach((it, i) => it.k.forEach(w => (idx[w] = idx[w] || []).push(i)))
+  const produk = (await produkSemua()).filter(p => !p.supplier)
+  const u = window._usulan = []
+  produk.forEach(p => { const kp = kata((p.name || '') + ' ' + (p.variant_names && p.variant_names !== 'nan' ? p.variant_names : '')); const cand = new Set(); kp.forEach(w => (idx[w] || []).forEach(i => cand.add(i)))
+    let best = null, bs = 0; cand.forEach(i => { const sc = mirip(kp, item[i].k); if (sc > bs) { bs = sc; best = item[i] } })
+    if (best && bs >= 0.6) u.push({ id: p.id, sku: p.sku || p.id, nama: p.name, sup: best.sup, nota: best.nama, tgl: best.tgl, skor: bs }) })
+  u.sort((a, b) => b.skor - a.skor)
+  box.innerHTML = u.length ? `<p style="font-size:13px;margin-bottom:8px"><b>${u.length}</b> usulan${u.length > 500 ? ' (500 teratas ditampilkan)' : ''} · yang kemiripannya ≥ 80% sudah dicentang.</p>
+    <div class="table-wrap" style="max-height:60vh;overflow:auto"><table><thead><tr><th><input type="checkbox" onchange="document.querySelectorAll('.usul-cb').forEach(c=>c.checked=this.checked)"></th><th>SKU</th><th>Produk</th><th>Supplier usulan</th><th>Nama di nota</th><th>Mirip</th></tr></thead><tbody>
+    ${u.slice(0, 500).map((x, i) => `<tr><td><input type="checkbox" class="usul-cb" data-i="${i}" ${x.skor >= 0.8 ? 'checked' : ''}></td><td>${esc(x.sku)}</td><td>${esc(x.nama)}</td><td><b>${esc(x.sup)}</b></td><td style="font-size:12px;color:#666">${esc(x.nota)}${x.tgl ? ' · ' + esc(x.tgl) : ''}</td><td>${Math.round(x.skor * 100)}%</td></tr>`).join('')}</tbody></table></div>
+    <button class="btn btn-success" style="margin-top:10px" onclick="simpanUsulanSupplier()">💾 Simpan yang dicentang</button>` : '<p style="color:#999">Tidak ada nama barang di nota yang cukup mirip dengan produk yang belum punya supplier.</p>'
+}
+window.simpanUsulanSupplier = async () => {
+  const pilih = [...document.querySelectorAll('.usul-cb:checked')].map(c => window._usulan[+c.dataset.i]); if (!pilih.length) return toast('Belum ada yang dicentang', 'error')
+  try {
+    const supBaru = [...new Set(pilih.map(x => x.sup))].filter(n => !supplierList.some(s => s.nama === n))
+    for (const n of supBaru) await setDoc(doc(db, 'supplier', idSup(n)), { nama: n, lama: 0, wa: '', catatan: 'dibuat dari nota', updated_at: serverTimestamp() })
+    for (let i = 0; i < pilih.length; i += 400) { const b = writeBatch(db); pilih.slice(i, i + 400).forEach(x => { b.update(doc(db, 'products', x.id), { supplier: x.sup }); const p = stokAllData.find(q => q.id === x.id); if (p) p.supplier = x.sup }); await b.commit() }
+    await sinkronSupplierKeAnalitik(pilih.map(x => [x.sku, x.sup]), Object.fromEntries(supBaru.map(n => [n, { lama: 0, wa: '' }])))
+    toast(`✅ Supplier diisi untuk ${pilih.length} barang${supBaru.length ? ` · ${supBaru.length} supplier baru — isi lama kirimnya` : ''}`); document.getElementById('sup-usul').innerHTML = ''; loadSupplier()
+  } catch (e) { toast('Gagal: ' + e.message, 'error') }
+}
+window.setSupplierMassal = async () => {
+  const rows = window._stokTampil || []; if (!rows.length) return toast('Tampilkan dulu produknya (cari / filter)', 'error')
+  await muatSupplier()
+  const n = (prompt(`Supplier untuk ${rows.length} produk yang tampil:\n(${supplierList.map(s => s.nama).join(', ') || 'belum ada supplier — tambahkan di menu Supplier'})`) || '').trim().toUpperCase(); if (!n) return
+  const ada = supplierList.find(s => s.nama === n)
+  if (!ada && !confirm(`Supplier "${n}" belum terdaftar. Tambahkan sebagai supplier baru?`)) return
+  try {
+    if (!ada) { await setDoc(doc(db, 'supplier', idSup(n)), { nama: n, lama: 0, wa: '', catatan: '', updated_at: serverTimestamp() }); await muatSupplier(true) }
+    for (let i = 0; i < rows.length; i += 400) { const b = writeBatch(db); rows.slice(i, i + 400).forEach(p => { b.update(doc(db, 'products', p.id), { supplier: n }); p.supplier = n }); await b.commit() }
+    await sinkronSupplierKeAnalitik(rows.map(p => [p.sku || p.id, n]), { [n]: { lama: +(ada?.lama) || 0, wa: ada?.wa || '' } })
+    toast(`✅ ${rows.length} produk → ${n}`); searchStok()
+  } catch (e) { toast('Gagal: ' + e.message, 'error') }
 }
 
 // ── UPDATE STOK ────────────────────────────────────────────────────────────
@@ -600,7 +715,7 @@ async function loadStok() {
 
   document.getElementById('stok-loading').style.display = 'none';
   document.getElementById('stok-empty').style.display   = 'flex';
-  if (document.getElementById('stok-kondisi')?.value || document.getElementById('stok-search').value) searchStok();
+  if (document.getElementById('stok-kondisi')?.value || document.getElementById('stok-search').value || window._filterSupplier) searchStok();
   muatStokFisik().then(f => {
     const el = document.getElementById('stok-sumber'); if (!el || !f) return
     const tgl = t => t?.toDate ? t.toDate().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
@@ -644,6 +759,7 @@ const KONDISI = {
   tanpa_hpp: p => tanpaHpp(p),
   modal_naik: p => +p.modal_baru_olsera > 0,
   margin: p => hargaP(p) > 0 && modalP(p) > 0 && hargaP(p) < modalP(p) * 1.15 && (totalStok(p) > 0 || lakuSku(p) > 0),
+  belum_supplier: p => !p.supplier && (totalStok(p) > 0 || lakuSku(p) > 0),
   mati: p => totalStok(p) > 0 && laku6(p) <= 0 && lakuPerSku && Object.keys(lakuPerSku).length > 0,
 }
 const URUT = {
@@ -664,7 +780,8 @@ window.searchStok = async () => {
     await muatLaku()
   }
 
-  if (!cari && !kat && !kondisi) {
+  muatSupplier();
+  if (!cari && !kat && !kondisi && !window._filterSupplier) {
     document.getElementById('stok-table-wrap').style.display = 'none';
     document.getElementById('stok-empty').style.display      = 'flex';
     document.getElementById('stok-count').textContent        = '';
@@ -678,9 +795,11 @@ window.searchStok = async () => {
   );
   if (kat) rows = rows.filter(p => p.category === kat);
   if (kondisi && KONDISI[kondisi]) rows = rows.filter(KONDISI[kondisi]);
+  if (window._filterSupplier) rows = rows.filter(p => p.supplier === window._filterSupplier);
+  window._stokTampil = rows;
   if (URUT[kondisi]) rows = rows.slice().sort(URUT[kondisi]);
 
-  document.getElementById('stok-count').textContent        = (rows.length > 0 ? `${rows.length.toLocaleString('id-ID')} produk ditemukan` : 'Tidak ditemukan') + (lakuInfo && kondisi ? ' · ' + lakuInfo : '');
+  document.getElementById('stok-count').innerHTML          = (window._filterSupplier ? `🏭 <b>${esc(window._filterSupplier)}</b> <a href="#" onclick="window._filterSupplier=null;searchStok();return false">✕</a> · ` : '') + (rows.length > 0 ? `${rows.length.toLocaleString('id-ID')} produk ditemukan` : 'Tidak ditemukan') + (lakuInfo && kondisi ? ' · ' + lakuInfo : '');
   document.getElementById('stok-empty').style.display      = 'none';
   document.getElementById('stok-table-wrap').style.display = rows.length > 0 ? 'block' : 'none';
 
@@ -692,7 +811,7 @@ window.searchStok = async () => {
   document.getElementById('stok-table-body').innerHTML = rows.slice(0, 100).map(p => `
     <tr id="stok-row-${p.id}">
       <td><strong>${p.sku}</strong></td>
-      <td>${p.name}</td>
+      <td>${p.name}<div style="margin-top:4px"><input list="dl-sup" id="sp-${p.id}" value="${esc(p.supplier || '')}" placeholder="🏭 supplier…" style="width:100%;max-width:200px;padding:4px 8px;border:1px solid #e5e5e5;border-radius:6px;font-size:12px"></div></td>
       <td style="font-size:12px;color:#444">${variantText(p)}</td>
       <td>${p.category || '-'}</td>
       <td class="number">
@@ -760,6 +879,9 @@ window.saveStok = async (id) => {
 
   try {
     const update = { updated_at: serverTimestamp() };
+    const spEl = document.getElementById(`sp-${id}`), spBaru = spEl ? spEl.value.trim().toUpperCase() : undefined
+    const pLama = stokAllData.find(p => p.id === id)
+    if (spEl && spBaru !== (pLama?.supplier || '')) update.supplier = spBaru
     if (!isNaN(sg)) update.stock_qty_gudang = sg;
     if (!isNaN(st)) update.stock_qty_toko   = st;
 
@@ -772,6 +894,12 @@ window.saveStok = async (id) => {
       if (!isNaN(st)) stokAllData[idx].stock_qty_toko   = st;
     }
 
+    if ('supplier' in update) {
+      if (stokAllData[idx]) stokAllData[idx].supplier = update.supplier
+      if (update.supplier && !supplierList?.some(s => s.nama === update.supplier)) { await setDoc(doc(db, 'supplier', idSup(update.supplier)), { nama: update.supplier, lama: 0, wa: '', catatan: '', updated_at: serverTimestamp() }); await muatSupplier(true); toast('Supplier baru ' + update.supplier + ' — isi lama kirimnya di menu Supplier') }
+      const si = supplierList?.find(s => s.nama === update.supplier)
+      sinkronSupplierKeAnalitik([[pLama?.sku || id, update.supplier]], update.supplier ? { [update.supplier]: { lama: +(si?.lama) || 0, wa: si?.wa || '' } } : null)
+    }
     // Ikut perbarui stok di Analitik Penjualan
     const pr = stokAllData[idx] || { sku: id }, sk = String(pr.sku || id)
     const ok = [!isNaN(sg) ? await sinkronStokKeAnalitik(sk, 'gudang', sg) : true, !isNaN(st) ? await sinkronStokKeAnalitik(sk, 'toko', st) : true].every(Boolean)
