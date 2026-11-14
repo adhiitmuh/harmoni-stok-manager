@@ -52,6 +52,7 @@ async function loadDashboard() {
     const products = prodSnap.docs.map(d => d.data());
     const notas    = notaSnap.docs.map(d => d.data());
     bangunModalAnalitik(false, products);
+    renderRingkasan(products);
 
     const gudangProds = products.filter(p => p.lokasi?.includes('gudang'));
     const tokoProds   = products.filter(p => p.lokasi?.includes('toko'));
@@ -110,6 +111,22 @@ async function loadDashboard() {
   } catch (e) {
     el('dash-loading').innerHTML = `<p style="color:red">Error: ${e.message}</p>`;
   }
+}
+
+async function renderRingkasan(products) {
+  const box = document.getElementById('ringkas-keputusan'); if (!box) return
+  await muatLaku()
+  const hit = k => products.filter(KONDISI[k])
+  const kosong = hit('kosong_laku'), pindah = hit('pindah'), mati = hit('mati'), naik = hit('modal_naik'), margin = hit('margin')
+  const hilang = kosong.reduce((t, p) => t + lakuSku(p) * hargaP(p), 0)
+  const tertahan = mati.reduce((t, p) => t + totalStok(p) * modalP(p), 0)
+  const kartu = (k, ikon, judul, val, sub, bg, fg) => `<button class="ringkas-kartu" style="background:${bg};color:${fg}" onclick="bukaFilterStok('${k}')"><div class="rk-ikon">${ikon} ${judul}</div><div class="rk-val">${val}</div><div class="rk-sub">${sub}</div></button>`
+  box.innerHTML = kartu('kosong_laku', '🔥', 'Penjualan hilang', rp(Math.round(hilang)) + '<span style="font-size:12px;font-weight:600">/bln</span>', `${num(kosong.length)} barang laku sedang kosong`, '#fef2f2', '#991b1b')
+    + kartu('pindah', '🚚', 'Toko kosong, gudang ada', num(pindah.length) + ' barang', 'pindahkan dulu sebelum beli', '#eff6ff', '#1e40af')
+    + kartu('mati', '🧊', 'Modal tertahan', rp(tertahan), `${num(mati.length)} barang tidak laku 6 bulan`, '#f1f5f9', '#334155')
+    + kartu('modal_naik', '📈', 'Modal naik', num(naik.length) + ' barang', 'modal di Olsera naik >10% — cek harga jual', '#fff7ed', '#9a3412')
+    + kartu('margin', '⚠️', 'Margin tipis / rugi', num(margin.length) + ' barang', 'harga jual < modal + 15%', '#fefce8', '#854d0e')
+  document.getElementById('ringkas-info').textContent = lakuInfo ? lakuInfo + ' Penjualan hilang = laku/bln × harga jual.' : ''
 }
 
 function statusHTML(s) {
@@ -583,6 +600,7 @@ async function loadStok() {
 
   document.getElementById('stok-loading').style.display = 'none';
   document.getElementById('stok-empty').style.display   = 'flex';
+  if (document.getElementById('stok-kondisi')?.value || document.getElementById('stok-search').value) searchStok();
   muatStokFisik().then(f => {
     const el = document.getElementById('stok-sumber'); if (!el || !f) return
     const tgl = t => t?.toDate ? t.toDate().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
@@ -592,7 +610,7 @@ async function loadStok() {
 }
 
 // Penjualan per SKU dari Analitik Penjualan (ringkasan bulanan, project harmoni-indonesia) → "laku" = rata-rata 3 bulan terakhir
-let lakuPerSku = null, lakuInfo = '';
+let lakuPerSku = null, laku6PerSku = {}, lakuInfo = '';
 async function muatLaku() {
   if (lakuPerSku) return lakuPerSku;
   const app = window._harmoniAuthApp; lakuPerSku = {};
@@ -603,7 +621,7 @@ async function muatLaku() {
     const n = meta.data().n || 1, parts = await Promise.all(Array.from({ length: n }, (_, i) => col.doc('part_' + i).get()))
     const r = JSON.parse(parts.sort((a, b) => (a.data()?.i || 0) - (b.data()?.i || 0)).map(d => d.data()?.data || '').join(''))
     const N = (r.bulan || []).length, ambil = Math.min(3, N)
-    ;(r.sku || []).forEach(x => { const q = x.q || [], tot = q.slice(N - ambil).reduce((t, v) => t + (+v || 0), 0); lakuPerSku[String(x.s).toUpperCase()] = ambil ? +(tot / ambil).toFixed(1) : 0 })
+    ;(r.sku || []).forEach(x => { const q = x.q || [], K = String(x.s).toUpperCase(), tot = q.slice(N - ambil).reduce((t, v) => t + (+v || 0), 0); lakuPerSku[K] = ambil ? +(tot / ambil).toFixed(1) : 0; laku6PerSku[K] = q.slice(Math.max(0, N - 6)).reduce((t, v) => t + (+v || 0), 0) })
     lakuInfo = `Laku/bln = rata-rata ${ambil} bulan terakhir (${(r.bulan || []).slice(N - ambil).join(', ')}) dari Analitik Penjualan.`
   } catch (e) {
     console.warn('penjualan', e)
@@ -613,7 +631,29 @@ async function muatLaku() {
 }
 const lakuSku = p => lakuPerSku?.[String(p.sku || p.id || '').toUpperCase()] || 0
 const totalStok = p => (+p.stock_qty_gudang || 0) + (+p.stock_qty_toko || 0)
-const tanpaHpp = p => (p.lokasi?.includes('gudang') && !(p.buy_price_gudang > 0)) || (p.lokasi?.includes('toko') && !(p.buy_price_toko > 0)) || (!p.lokasi?.length && !(p.buy_price_gudang > 0) && !(p.buy_price_toko > 0))
+const stokToko = p => +p.stock_qty_toko || 0, stokGudang = p => +p.stock_qty_gudang || 0
+const modalP = p => (+p.buy_price_toko > 0 ? +p.buy_price_toko : +p.buy_price_gudang) || 0
+const hargaP = p => +p.pos_sell_price || 0
+const laku6 = p => laku6PerSku[String(p.sku || p.id || '').toUpperCase()] || 0
+// Kondisi untuk filter & ringkasan
+const KONDISI = {
+  kosong: p => totalStok(p) <= 0,
+  kosong_laku: p => totalStok(p) <= 0 && lakuSku(p) > 0,
+  hampir_laku: p => { const t = totalStok(p), l = lakuSku(p); return l > 0 && t > 0 && t < l },
+  pindah: p => stokToko(p) <= 0 && stokGudang(p) > 0 && (laku6(p) > 0 || lakuSku(p) > 0),
+  tanpa_hpp: p => tanpaHpp(p),
+  modal_naik: p => +p.modal_baru_olsera > 0,
+  margin: p => hargaP(p) > 0 && modalP(p) > 0 && hargaP(p) < modalP(p) * 1.15 && (totalStok(p) > 0 || lakuSku(p) > 0),
+  mati: p => totalStok(p) > 0 && laku6(p) <= 0 && lakuPerSku && Object.keys(lakuPerSku).length > 0,
+}
+const URUT = {
+  kosong_laku: (a, b) => lakuSku(b) * hargaP(b) - lakuSku(a) * hargaP(a),
+  hampir_laku: (a, b) => lakuSku(b) - lakuSku(a),
+  pindah: (a, b) => lakuSku(b) - lakuSku(a) || stokGudang(b) - stokGudang(a),
+  mati: (a, b) => totalStok(b) * modalP(b) - totalStok(a) * modalP(a),
+  margin: (a, b) => lakuSku(b) - lakuSku(a),
+}
+const tanpaHpp = p => !(modalP(p) > 0)   // modal toko atau gudang — salah satu cukup
 
 window.searchStok = async () => {
   const cari = document.getElementById('stok-search').value.trim().toUpperCase();
@@ -637,11 +677,8 @@ window.searchStok = async () => {
     (p.variant_names || '').includes(cari) || (p.variant_label || '').includes(cari)
   );
   if (kat) rows = rows.filter(p => p.category === kat);
-  if (kondisi === 'kosong') rows = rows.filter(p => totalStok(p) <= 0);
-  if (kondisi === 'kosong_laku') rows = rows.filter(p => totalStok(p) <= 0 && lakuSku(p) > 0);
-  if (kondisi === 'hampir_laku') rows = rows.filter(p => { const t = totalStok(p), l = lakuSku(p); return l > 0 && t > 0 && t < l });
-  if (kondisi === 'tanpa_hpp') rows = rows.filter(tanpaHpp);
-  if (kondisi === 'kosong_laku' || kondisi === 'hampir_laku') rows = rows.slice().sort((a, b) => lakuSku(b) - lakuSku(a));
+  if (kondisi && KONDISI[kondisi]) rows = rows.filter(KONDISI[kondisi]);
+  if (URUT[kondisi]) rows = rows.slice().sort(URUT[kondisi]);
 
   document.getElementById('stok-count').textContent        = (rows.length > 0 ? `${rows.length.toLocaleString('id-ID')} produk ditemukan` : 'Tidak ditemukan') + (lakuInfo && kondisi ? ' · ' + lakuInfo : '');
   document.getElementById('stok-empty').style.display      = 'none';
@@ -670,7 +707,7 @@ window.searchStok = async () => {
           onfocus="this.style.borderColor='#034543';this.style.background='#fffbd5'"
           onblur="this.style.borderColor='#e5e5e5';this.style.background=''">
       </td>
-      <td class="number" style="font-weight:700;color:${lakuSku(p) > 0 ? '#166534' : '#999'}">${lakuPerSku ? (lakuSku(p) || '—') : '<span style="font-size:11px;color:#999">pilih filter laku</span>'}${tanpaHpp(p) ? '<div style="font-size:10px;color:#b91c1c;font-weight:700">modal belum ada</div>' : ''}</td>
+      <td class="number" style="font-weight:700;color:${lakuSku(p) > 0 ? '#166534' : '#999'}">${lakuPerSku ? (lakuSku(p) || '—') : '<span style="font-size:11px;color:#999">pilih filter laku</span>'}${tanpaHpp(p) ? '<div style="font-size:10px;color:#b91c1c;font-weight:700">modal belum ada</div>' : ''}${infoKondisi(p, kondisi)}</td>
       <td>
         <button class="btn btn-primary btn-sm" onclick="saveStok('${p.id}')">Simpan</button>
       </td>
@@ -682,6 +719,36 @@ window.searchStok = async () => {
         Menampilkan 100 dari ${rows.length} hasil. Persempit pencarian untuk melihat lebih spesifik.
       </td></tr>`);
 };
+
+function infoKondisi(p, k) {
+  const kec = t => `<div style="font-size:10px;font-weight:600;color:#555;white-space:nowrap">${t}</div>`
+  if (k === 'kosong_laku' && hargaP(p)) return kec('hilang ±' + rp(Math.round(lakuSku(p) * hargaP(p))) + '/bln')
+  if (k === 'pindah') return kec('🚚 gudang ' + num(stokGudang(p)) + ' → toko')
+  if (k === 'mati') return kec('🧊 tertahan ' + rp(totalStok(p) * modalP(p)))
+  if (k === 'margin') return kec(`jual ${rp(hargaP(p))} · modal ${rp(modalP(p))}`)
+  if (k === 'modal_naik') return kec(`modal ${rp(modalP(p))} → <b style="color:#b91c1c">${rp(p.modal_baru_olsera)}</b>`) + `<button class="btn btn-sm" style="margin-top:4px;font-size:11px;padding:3px 8px" onclick="pakaiModalBaru('${p.id}')">Pakai modal baru</button> <button class="btn btn-sm" style="margin-top:4px;font-size:11px;padding:3px 8px;background:#eee;color:#333" onclick="abaikanModalBaru('${p.id}')">Abaikan</button>`
+  return ''
+}
+window.pakaiModalBaru = async (id) => {
+  const p = stokAllData.find(x => x.id === id); if (!p) return
+  const baru = +p.modal_baru_olsera, upd = { updated_at: serverTimestamp(), modal_baru_olsera: null }
+  if (p.lokasi?.includes('toko') || +p.buy_price_toko > 0) upd.buy_price_toko = baru
+  if (p.lokasi?.includes('gudang') || +p.buy_price_gudang > 0) upd.buy_price_gudang = baru
+  if (!upd.buy_price_toko && !upd.buy_price_gudang) upd.buy_price_toko = baru
+  try { await updateDoc(doc(db, 'products', id), upd); Object.assign(p, upd, { modal_baru_olsera: null }); sinkronModalKeAnalitik([[p.sku || id, baru]]); toast('✅ Modal ' + (p.sku || id) + ' jadi ' + rp(baru)); searchStok() }
+  catch (e) { toast('Gagal: ' + e.message, 'error') }
+}
+window.abaikanModalBaru = async (id) => {
+  const p = stokAllData.find(x => x.id === id); if (!p) return
+  try { await updateDoc(doc(db, 'products', id), { modal_baru_olsera: null, updated_at: serverTimestamp() }); p.modal_baru_olsera = null; toast('Diabaikan'); searchStok() }
+  catch (e) { toast('Gagal: ' + e.message, 'error') }
+}
+// Dari kartu Dashboard → buka Update Stok dengan filter
+window.bukaFilterStok = (k) => {
+  const sel = document.getElementById('stok-kondisi'); if (sel) sel.value = k
+  document.getElementById('stok-search').value = ''; document.getElementById('stok-kat').value = ''
+  document.querySelector('.nav-item[data-page="stok"]').click()
+}
 
 window.saveStok = async (id) => {
   const btn  = document.querySelector(`#stok-row-${id} button`);

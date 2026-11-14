@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <meta name="theme-color" content="#034543">
   <title>Harmoni Stok Manager</title>
-  <link rel="stylesheet" href="css/style.css?v=20261114">
+  <link rel="stylesheet" href="css/style.css?v=20261114b">
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
@@ -78,6 +78,11 @@
     </div>
 
     <div id="dash-content" style="display:none">
+      <div class="card" style="padding:16px 18px">
+        <div class="card-title" style="margin-bottom:10px">🧭 Ringkasan untuk keputusan belanja <span style="font-weight:400;font-size:12px;color:#666">— ketuk kartu untuk melihat daftarnya</span></div>
+        <div id="ringkas-keputusan" class="ringkas-grid"><div style="color:#999;font-size:13px">Menghitung…</div></div>
+        <div id="ringkas-info" style="font-size:11px;color:#888;margin-top:8px"></div>
+      </div>
       <div class="metrics-grid" style="grid-template-columns:repeat(3,1fr)">
         <div class="metric-card">
           <div class="metric-val" id="m-total-g">—</div>
@@ -222,7 +227,11 @@
           <option value="kosong_laku">🔥 Stok kosong &amp; laku</option>
           <option value="hampir_laku">⚠️ Hampir habis &amp; laku (&lt; 1 bln)</option>
           <option value="kosong">🔴 Stok kosong (semua)</option>
+          <option value="pindah">🚚 Toko kosong, gudang ada</option>
           <option value="tanpa_hpp">💸 Belum ada modal (HPP)</option>
+          <option value="modal_naik">📈 Modal naik dari Olsera</option>
+          <option value="margin">⚠️ Margin tipis / rugi</option>
+          <option value="mati">🧊 Tidak laku 6 bulan (modal tertahan)</option>
         </select>
         <span id="stok-count" style="font-size:13px;color:#666"></span>
       </div>

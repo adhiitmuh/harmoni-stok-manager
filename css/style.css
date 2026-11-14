@@ -280,3 +280,12 @@ td input[type="number"]:focus { outline: none; border-color: var(--green-mid); b
   /* Dua kartu berdampingan (Upload Gudang/Toko, Status HPP) → disusun atas-bawah */
   #main [style*="grid-template-columns:1fr 1fr"] { grid-template-columns: minmax(0, 1fr) !important; gap: 12px !important; }
 }
+
+/* Ringkasan keputusan (Dashboard) */
+.ringkas-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+@media (max-width: 700px) { .ringkas-grid { grid-template-columns: 1fr 1fr; gap: 8px; } .ringkas-kartu { padding: 10px; } .ringkas-kartu .rk-val { font-size: 16px; } .ringkas-kartu .rk-ikon { font-size: 12px; } }
+.ringkas-kartu { border-radius: 12px; padding: 12px 14px; cursor: pointer; border: 1.5px solid transparent; text-align: left; font-family: inherit; transition: transform .1s; }
+.ringkas-kartu:active { transform: scale(.98); }
+.ringkas-kartu .rk-ikon { font-size: 13px; font-weight: 700; }
+.ringkas-kartu .rk-val { font-size: 20px; font-weight: 800; margin: 4px 0 2px; }
+.ringkas-kartu .rk-sub { font-size: 11px; opacity: .8; }
