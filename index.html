@@ -208,6 +208,7 @@
   <div id="stok" class="page">
     <h1 class="page-title">Update Stok</h1>
     <p class="page-subtitle">Cari produk lalu update jumlah stok gudang dan/atau toko</p>
+    <div id="stok-sumber" style="font-size:12px;color:#166534;background:#ecfdf5;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:12px;display:none"></div>
 
     <div class="card" style="padding:16px 24px">
       <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
@@ -496,6 +497,7 @@ _app.auth().onAuthStateChanged(async user => {
     // Tampilkan nama user di sidebar footer
     const footer = document.querySelector('.sidebar-footer');
     if (footer) footer.textContent = (data.nama || user.email) + ' · harmoni © 2026';
+    window._harmoniUserName = data.nama || user.email;
   } catch(e) {
     elLoading.style.display = 'none';
     elDenied.style.display  = 'block';

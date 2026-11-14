@@ -51,6 +51,7 @@ async function loadDashboard() {
 
     const products = prodSnap.docs.map(d => d.data());
     const notas    = notaSnap.docs.map(d => d.data());
+    bangunModalAnalitik(false, products);
 
     const gudangProds = products.filter(p => p.lokasi?.includes('gudang'));
     const tokoProds   = products.filter(p => p.lokasi?.includes('toko'));
@@ -306,6 +307,7 @@ window.saveHpp = async () => {
       }
     }
     await batch.commit();
+    sinkronModalKeAnalitik([...dirtyHpp].map(id => [id, parseFloat(document.getElementById(`hpp-input-${id}`)?.value || 0)]).filter(([, v]) => v > 0))
     dirtyHpp.clear();
     toast(`✅ ${saved} HPP berhasil disimpan`);
     await loadHpp();
@@ -465,9 +467,10 @@ window.uploadToFirestore = async (lokasi) => {
           variant_names : String(r.variant_names || '').trim(),
           pos_sell_price: parseFloat(r.pos_sell_price) || 0,
           [stockField]  : parseFloat(r.stock_qty) || 0,
-          [priceField]  : parseFloat(r.buy_price) || 0,
           updated_at    : serverTimestamp(),
         };
+        // Modal dari Olsera hanya dipakai kalau ada nilainya — modal yang diisi manual tidak ditimpa 0
+        if (parseFloat(r.buy_price) > 0) data[priceField] = parseFloat(r.buy_price);
 
         // Tambahkan lokasi
         const ref = doc(db, 'products', sku);
@@ -486,6 +489,16 @@ window.uploadToFirestore = async (lokasi) => {
       addLog(`✓ ${done.toLocaleString('id-ID')} / ${total.toLocaleString('id-ID')} produk`);
     }
 
+    // Stok yang sama juga dipakai Analitik Penjualan
+    {
+      const peta = {}; rows.forEach(r => { const k = String(r.sku || '').trim().toUpperCase(); if (k && k !== 'SKU') peta[k] = (peta[k] || 0) + (parseFloat(r.stock_qty) || 0) })
+      const d = hiDb()
+      if (d) {
+        try { await d.collection('settings').doc('stok_fisik').set({ [lokasi]: peta, [lokasi + '_updated_at']: firebase.firestore.FieldValue.serverTimestamp(), [lokasi + '_updated_by']: (window._harmoniUserName || '') + ' (Stok Manager)' }, { merge: true }); _stokFisik = null; addLog('☁️ Stok juga diperbarui di Analitik Penjualan') }
+        catch (e) { addLog(`<span style="color:#b45309">⚠️ Analitik belum diperbarui: ${e.message}</span>`) }
+      }
+      _modalDibangun = false; bangunModalAnalitik(true)
+    }
     addLog(`<strong style="color:#16a34a">✅ Upload selesai! ${total.toLocaleString('id-ID')} produk ${lokasi} berhasil disinkronkan.</strong>`);
     toast(`✅ ${total.toLocaleString('id-ID')} produk ${lokasi} berhasil diupload`);
     stokAllData = []; // reset cache stok
@@ -502,6 +515,50 @@ function invalidateDashboard() {
   // Force reload dashboard data next time
   document.getElementById('dash-loading').style.display = 'flex';
   document.getElementById('dash-content').style.display = 'none';
+}
+
+// ── SINKRON DENGAN ANALITIK PENJUALAN (project harmoni-indonesia) ──────────
+// settings/stok_fisik  = { toko:{SKU:qty}, gudang:{SKU:qty}, toko_updated_at, ... }  → dipakai Analitik
+// settings/modal_produk = { m:{SKU:modal} }  → modal yang diisi di Stok Manager dipakai Analitik
+const hiDb = () => { const a = window._harmoniAuthApp; return a && a.auth().currentUser ? a.firestore() : null }
+let _stokFisik = null
+async function muatStokFisik() {
+  const d = hiDb(); if (!d) return null
+  try { _stokFisik = (await d.collection('settings').doc('stok_fisik').get()).data() || {} } catch (e) { console.warn('stok_fisik', e) }
+  return _stokFisik
+}
+// Kunci SKU di stok_fisik apa adanya dari Olsera — cari yang sama tanpa beda huruf besar/kecil
+const kunciFisik = (lokasi, sku) => Object.keys(_stokFisik?.[lokasi] || {}).find(k => k.toUpperCase() === sku.toUpperCase()) || sku
+async function sinkronStokKeAnalitik(sku, lokasi, qty) {
+  const d = hiDb(); if (!d) return false
+  try {
+    if (!_stokFisik) await muatStokFisik()
+    const k = kunciFisik(lokasi, sku)
+    await d.collection('settings').doc('stok_fisik').update(new firebase.firestore.FieldPath(lokasi, k), qty, lokasi + '_updated_by', (window._harmoniUserName || '') + ' (Stok Manager)')
+    if (_stokFisik) (_stokFisik[lokasi] = _stokFisik[lokasi] || {})[k] = qty
+    return true
+  } catch (e) { console.warn('sinkron stok', e); return false }
+}
+async function sinkronModalKeAnalitik(pasangan) {   // [[sku, modal], ...]
+  const d = hiDb(); if (!d || !pasangan.length) return
+  try {
+    const args = []; pasangan.forEach(([sku, m]) => args.push(new firebase.firestore.FieldPath('m', sku.toUpperCase()), m))
+    await d.collection('settings').doc('modal_produk').update(...args)
+  } catch (e) {
+    if (e.code === 'not-found') await bangunModalAnalitik(true)
+    else console.warn('sinkron modal', e)
+  }
+}
+// Ringkasan modal lengkap (sekali per sesi, dari data produk) supaya Analitik selalu punya data modal terbaru
+let _modalDibangun = false
+async function bangunModalAnalitik(paksa, produk) {
+  const d = hiDb(); if (!d || (_modalDibangun && !paksa)) return
+  try {
+    const list = produk || (await getDocs(collection(db, 'products'))).docs.map(x => x.data())
+    const m = {}; list.forEach(p => { const v = (+p.buy_price_toko > 0 ? +p.buy_price_toko : +p.buy_price_gudang) || 0; if (p.sku && v > 0) m[String(p.sku).toUpperCase()] = v })
+    await d.collection('settings').doc('modal_produk').set({ m, updated_at: firebase.firestore.FieldValue.serverTimestamp(), updated_by: (window._harmoniUserName || '') + ' (Stok Manager)' })
+    _modalDibangun = true
+  } catch (e) { console.warn('bangun modal', e) }
 }
 
 // ── UPDATE STOK ────────────────────────────────────────────────────────────
@@ -526,6 +583,12 @@ async function loadStok() {
 
   document.getElementById('stok-loading').style.display = 'none';
   document.getElementById('stok-empty').style.display   = 'flex';
+  muatStokFisik().then(f => {
+    const el = document.getElementById('stok-sumber'); if (!el || !f) return
+    const tgl = t => t?.toDate ? t.toDate().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : '—'
+    el.style.display = 'block'
+    el.innerHTML = `🔗 Tersambung dengan <b>Analitik Penjualan</b> — upload stok di salah satu aplikasi, keduanya ikut terbarui. Stok toko terakhir: <b>${tgl(f.toko_updated_at)}</b>${f.toko_updated_by ? ' (' + f.toko_updated_by + ')' : ''} · gudang: <b>${tgl(f.gudang_updated_at)}</b>${f.gudang_updated_by ? ' (' + f.gudang_updated_by + ')' : ''}`
+  })
 }
 
 // Penjualan per SKU dari Analitik Penjualan (ringkasan bulanan, project harmoni-indonesia) → "laku" = rata-rata 3 bulan terakhir
@@ -641,6 +704,11 @@ window.saveStok = async (id) => {
       if (!isNaN(sg)) stokAllData[idx].stock_qty_gudang = sg;
       if (!isNaN(st)) stokAllData[idx].stock_qty_toko   = st;
     }
+
+    // Ikut perbarui stok di Analitik Penjualan
+    const pr = stokAllData[idx] || { sku: id }, sk = String(pr.sku || id)
+    const ok = [!isNaN(sg) ? await sinkronStokKeAnalitik(sk, 'gudang', sg) : true, !isNaN(st) ? await sinkronStokKeAnalitik(sk, 'toko', st) : true].every(Boolean)
+    if (!ok) toast('Stok tersimpan, tapi belum tersinkron ke Analitik — cek internet / login Portal', 'error')
 
     btn.textContent = '✓';
     btn.style.background = '#16a34a';
