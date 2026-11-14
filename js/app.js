@@ -528,11 +528,40 @@ async function loadStok() {
   document.getElementById('stok-empty').style.display   = 'flex';
 }
 
-window.searchStok = () => {
+// Penjualan per SKU dari Analitik Penjualan (ringkasan bulanan, project harmoni-indonesia) → "laku" = rata-rata 3 bulan terakhir
+let lakuPerSku = null, lakuInfo = '';
+async function muatLaku() {
+  if (lakuPerSku) return lakuPerSku;
+  const app = window._harmoniAuthApp; lakuPerSku = {};
+  if (!app || !app.auth().currentUser) return lakuPerSku;
+  try {
+    const col = app.firestore().collection('penjualan_operator'), meta = await col.doc('meta').get();
+    if (!meta.exists) { lakuInfo = 'Data penjualan belum ada — buka Analitik Penjualan (Owner/Admin) sekali supaya tersinkron.'; return lakuPerSku }
+    const n = meta.data().n || 1, parts = await Promise.all(Array.from({ length: n }, (_, i) => col.doc('part_' + i).get()))
+    const r = JSON.parse(parts.sort((a, b) => (a.data()?.i || 0) - (b.data()?.i || 0)).map(d => d.data()?.data || '').join(''))
+    const N = (r.bulan || []).length, ambil = Math.min(3, N)
+    ;(r.sku || []).forEach(x => { const q = x.q || [], tot = q.slice(N - ambil).reduce((t, v) => t + (+v || 0), 0); lakuPerSku[String(x.s).toUpperCase()] = ambil ? +(tot / ambil).toFixed(1) : 0 })
+    lakuInfo = `Laku/bln = rata-rata ${ambil} bulan terakhir (${(r.bulan || []).slice(N - ambil).join(', ')}) dari Analitik Penjualan.`
+  } catch (e) {
+    console.warn('penjualan', e)
+    lakuInfo = e.code === 'permission-denied' ? 'Akun ini belum punya akses data penjualan — minta Owner memberi akses.' : 'Data penjualan gagal dimuat — cek internet.'
+  }
+  return lakuPerSku
+}
+const lakuSku = p => lakuPerSku?.[String(p.sku || p.id || '').toUpperCase()] || 0
+const totalStok = p => (+p.stock_qty_gudang || 0) + (+p.stock_qty_toko || 0)
+const tanpaHpp = p => (p.lokasi?.includes('gudang') && !(p.buy_price_gudang > 0)) || (p.lokasi?.includes('toko') && !(p.buy_price_toko > 0)) || (!p.lokasi?.length && !(p.buy_price_gudang > 0) && !(p.buy_price_toko > 0))
+
+window.searchStok = async () => {
   const cari = document.getElementById('stok-search').value.trim().toUpperCase();
   const kat  = document.getElementById('stok-kat').value;
+  const kondisi = document.getElementById('stok-kondisi')?.value || '';
+  if (kondisi && !lakuPerSku) {
+    document.getElementById('stok-count').textContent = 'Memuat data penjualan…'
+    await muatLaku()
+  }
 
-  if (!cari && !kat) {
+  if (!cari && !kat && !kondisi) {
     document.getElementById('stok-table-wrap').style.display = 'none';
     document.getElementById('stok-empty').style.display      = 'flex';
     document.getElementById('stok-count').textContent        = '';
@@ -545,8 +574,13 @@ window.searchStok = () => {
     (p.variant_names || '').includes(cari) || (p.variant_label || '').includes(cari)
   );
   if (kat) rows = rows.filter(p => p.category === kat);
+  if (kondisi === 'kosong') rows = rows.filter(p => totalStok(p) <= 0);
+  if (kondisi === 'kosong_laku') rows = rows.filter(p => totalStok(p) <= 0 && lakuSku(p) > 0);
+  if (kondisi === 'hampir_laku') rows = rows.filter(p => { const t = totalStok(p), l = lakuSku(p); return l > 0 && t > 0 && t < l });
+  if (kondisi === 'tanpa_hpp') rows = rows.filter(tanpaHpp);
+  if (kondisi === 'kosong_laku' || kondisi === 'hampir_laku') rows = rows.slice().sort((a, b) => lakuSku(b) - lakuSku(a));
 
-  document.getElementById('stok-count').textContent        = rows.length > 0 ? `${rows.length.toLocaleString('id-ID')} produk ditemukan` : 'Tidak ditemukan';
+  document.getElementById('stok-count').textContent        = (rows.length > 0 ? `${rows.length.toLocaleString('id-ID')} produk ditemukan` : 'Tidak ditemukan') + (lakuInfo && kondisi ? ' · ' + lakuInfo : '');
   document.getElementById('stok-empty').style.display      = 'none';
   document.getElementById('stok-table-wrap').style.display = rows.length > 0 ? 'block' : 'none';
 
@@ -573,6 +607,7 @@ window.searchStok = () => {
           onfocus="this.style.borderColor='#034543';this.style.background='#fffbd5'"
           onblur="this.style.borderColor='#e5e5e5';this.style.background=''">
       </td>
+      <td class="number" style="font-weight:700;color:${lakuSku(p) > 0 ? '#166534' : '#999'}">${lakuPerSku ? (lakuSku(p) || '—') : '<span style="font-size:11px;color:#999">pilih filter laku</span>'}${tanpaHpp(p) ? '<div style="font-size:10px;color:#b91c1c;font-weight:700">modal belum ada</div>' : ''}</td>
       <td>
         <button class="btn btn-primary btn-sm" onclick="saveStok('${p.id}')">Simpan</button>
       </td>
@@ -580,7 +615,7 @@ window.searchStok = () => {
 
   if (rows.length > 100)
     document.getElementById('stok-table-body').insertAdjacentHTML('beforeend',
-      `<tr><td colspan="7" style="text-align:center;padding:16px;color:#999;font-size:13px">
+      `<tr><td colspan="8" style="text-align:center;padding:16px;color:#999;font-size:13px">
         Menampilkan 100 dari ${rows.length} hasil. Persempit pencarian untuk melihat lebih spesifik.
       </td></tr>`);
 };

@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <meta name="theme-color" content="#034543">
   <title>Harmoni Stok Manager</title>
-  <link rel="stylesheet" href="css/style.css?v=20261103">
+  <link rel="stylesheet" href="css/style.css?v=20261114">
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
@@ -216,6 +216,13 @@
         <select id="stok-kat" onchange="searchStok()" style="padding:10px 14px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:14px">
           <option value="">Semua kategori</option>
         </select>
+        <select id="stok-kondisi" onchange="searchStok()" style="padding:10px 14px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:14px">
+          <option value="">Semua stok</option>
+          <option value="kosong_laku">🔥 Stok kosong &amp; laku</option>
+          <option value="hampir_laku">⚠️ Hampir habis &amp; laku (&lt; 1 bln)</option>
+          <option value="kosong">🔴 Stok kosong (semua)</option>
+          <option value="tanpa_hpp">💸 Belum ada modal (HPP)</option>
+        </select>
         <span id="stok-count" style="font-size:13px;color:#666"></span>
       </div>
     </div>
@@ -235,6 +242,7 @@
               <th style="width:130px">Kategori</th>
               <th style="width:110px">Stok Gudang ✏️</th>
               <th style="width:110px">Stok Toko ✏️</th>
+              <th style="width:90px" title="Rata-rata terjual per bulan, 3 bulan terakhir (dari Analitik Penjualan)">Laku/bln</th>
               <th style="width:90px">Aksi</th>
             </tr></thead>
             <tbody id="stok-table-body"></tbody>
@@ -459,6 +467,7 @@ const _fbCfg = {
   appId: '1:825719884876:web:a8fd78d382e0f98cf6b8e9'
 };
 const _app = firebase.apps.find(a => a.name === 'harmoni-auth') || firebase.initializeApp(_fbCfg, 'harmoni-auth');
+window._harmoniAuthApp = _app;
 
 _app.auth().onAuthStateChanged(async user => {
   const overlay   = document.getElementById('auth-overlay');

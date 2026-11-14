@@ -71,6 +71,7 @@ body {
   margin-left: 240px;
   flex: 1; padding: 32px;
   min-height: 100vh;
+  min-width: 0;   /* tabel lebar digeser di dalam kotaknya, bukan melebarkan halaman */
 }
 .page { display: none; }
 .page.active { display: block; }
