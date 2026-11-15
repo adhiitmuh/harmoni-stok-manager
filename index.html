@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <meta name="theme-color" content="#034543">
   <title>Harmoni Stok Manager</title>
-  <link rel="stylesheet" href="css/style.css?v=20261114c">
+  <link rel="stylesheet" href="css/style.css?v=20261115a">
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
@@ -62,6 +62,9 @@
     </button>
     <button class="nav-item" data-page="banding">
       <span class="icon">💰</span> Banding Harga
+    </button>
+    <button class="nav-item" data-page="belanja">
+      <span class="icon">🛒</span> Belanja
     </button>
     <button class="nav-item" data-page="rekonsiliasi">
       <span class="icon">🔄</span> Rekonsiliasi Stok
@@ -444,7 +447,7 @@
   <!-- BANDING HARGA -->
   <div id="banding" class="page">
     <h1 class="page-title">Banding Harga Supplier</h1>
-    <p class="page-subtitle">Harga terakhir tiap supplier per barang (dari nota, penawaran Harga beli terakhir tiap supplier per barang — diambil otomatis dari nota catatan harga) + nilai kualitas</p>
+    <p class="page-subtitle">Harga terakhir tiap supplier per barang (dari nota, penawaran & catatan harga) + nilai kualitas</p>
     <div class="card">
       <div class="card-title">🔔 Perlu konfirmasi Bapak <span id="bh-antre-n" style="color:#b91c1c"></span></div>
       <div id="bh-antre"></div>
@@ -458,6 +461,28 @@
       <div id="bh-tabel"></div>
     </div>
     <datalist id="dl-produk"></datalist>
+  </div>
+
+  <!-- DAFTAR BELANJA -->
+  <div id="belanja" class="page">
+    <h1 class="page-title">Daftar Belanja</h1>
+    <p class="page-subtitle">Barang paling menguntungkan dipilih sampai budget habis → dipecah jadi PO per supplier → kirim via WA → barang datang jadi nota</p>
+    <div class="card">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;align-items:end">
+        <div class="form-group" style="margin:0"><label>Budget belanja (Rp)</label><input id="bl-budget" inputmode="numeric" placeholder="kosong = tanpa batas" oninput="formatBudget(this)"></div>
+        <div class="form-group" style="margin:0"><label>Stok untuk berapa lama</label><select id="bl-bulan" onchange="hitungBelanja()"><option value="0.5">2 minggu</option><option value="1" selected>1 bulan</option><option value="2">2 bulan</option><option value="3">3 bulan</option></select></div>
+        <div class="form-group" style="margin:0"><label>Pilih supplier</label><select id="bl-mode" onchange="hitungBelanja()"><option value="rek">🏆 Rekomendasi (harga + kualitas)</option><option value="utama">⭐ Supplier utama</option><option value="cepat">⚡ Paling cepat kirim</option></select></div>
+        <label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="bl-final" checked onchange="hitungBelanja()"> pakai Final Order dari Analitik bila ada</label>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn btn-primary" onclick="hitungBelanja()">🧮 Hitung daftar belanja</button><button class="btn btn-secondary" onclick="resetBelanja()">↺ Kembalikan usulan awal</button></div>
+      <p style="font-size:12px;color:#666;margin-top:8px">Butuh = laku/bln × lama stok + laku selama menunggu kiriman − stok sekarang. Urutan: barang <b>kosong & laku</b> dulu, lalu untung per Rupiah modal paling besar. Qty & supplier bisa diubah per barang.</p>
+    </div>
+    <div id="bl-ringkas"></div>
+    <div id="bl-hasil"></div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div class="card-title" style="margin:0">📦 PO (pesanan ke supplier)</div><label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="po-semua" onchange="renderPO()"> tampilkan yang sudah selesai</label></div>
+      <div id="po-list" style="margin-top:10px"></div>
+    </div>
   </div>
 
   <div id="rekonsiliasi" class="page">

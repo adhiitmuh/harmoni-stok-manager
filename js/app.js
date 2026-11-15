@@ -1,6 +1,6 @@
 import { db } from './firebase-config.js';
 import {
-  collection, getDocs, addDoc, doc, updateDoc,
+  collection, getDocs, getDoc, addDoc, doc, updateDoc,
   query, where, orderBy, limit, serverTimestamp, writeBatch, setDoc, deleteDoc
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
@@ -22,6 +22,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
+    btn.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     document.getElementById(btn.dataset.page).classList.add('active');
     loadPage(btn.dataset.page);
   });
@@ -36,6 +37,7 @@ function loadPage(id) {
   if (id === 'rekonsiliasi')  loadRekonsiliasi();
   if (id === 'supplier')      loadSupplier();
   if (id === 'banding')       loadBanding();
+  if (id === 'belanja')       loadBelanja();
 }
 
 // ── DASHBOARD ──────────────────────────────────────────────────────────────
@@ -128,6 +130,9 @@ async function renderRingkasan(products) {
     + kartu('mati', '🧊', 'Modal tertahan', rp(tertahan), `${num(mati.length)} barang tidak laku 6 bulan`, '#f1f5f9', '#334155')
     + kartu('modal_naik', '📈', 'Modal naik', num(naik.length) + ' barang', 'modal di Olsera naik >10% — cek harga jual', '#fff7ed', '#9a3412')
     + kartu('margin', '⚠️', 'Margin tipis / rugi', num(margin.length) + ' barang', 'harga jual < modal + 15%', '#fefce8', '#854d0e')
+  getDocs(collection(db, 'po')).then(sn => { const now = hariIni(), a = sn.docs.map(d => d.data()).filter(p => p.status === 'dipesan'); if (!a.length) return
+    const tl = a.filter(p => p.perkiraan_datang && p.perkiraan_datang < now).length
+    box.insertAdjacentHTML('beforeend', `<button class="ringkas-kartu" style="background:${tl ? '#fef2f2' : '#ecfdf5'};color:${tl ? '#991b1b' : '#166534'}" onclick="keBelanja()"><div class="rk-ikon">📦 PO berjalan</div><div class="rk-val">${num(a.length)} PO</div><div class="rk-sub">${tl ? tl + ' terlambat datang' : 'menunggu barang datang'}</div></button>`) }).catch(() => {})
   document.getElementById('ringkas-info').textContent = lakuInfo ? lakuInfo + ' Penjualan hilang = laku/bln × harga jual.' : ''
 }
 
@@ -220,7 +225,7 @@ window.submitNota = async () => {
       supplier, tanggal, no_invoice: no_inv, items, jenis,
       created_at: serverTimestamp(),
     });
-    toast(`✅ ${items.length} item dari ${supplier} disimpan (${JENIS_NOTA[jenis][0]})`); window._bh = null;
+    toast(`✅ ${items.length} item dari ${supplier} disimpan (${JENIS_NOTA[jenis][0]})`); _bh = null;
 
     // Reset form
     document.getElementById('nota-supplier').value = '';
@@ -1061,3 +1066,240 @@ window.saveStok = async (id) => {
 
 // ── Init ───────────────────────────────────────────────────────────────────
 loadDashboard();
+
+// ── DAFTAR BELANJA (budget → PO per supplier → barang datang jadi nota) ─────
+// po/{id} = { supplier, tanggal, lama, perkiraan_datang, status:'dipesan'|'datang'|'batal', items:[{sku, nama, nama_sup, qty, harga}], total, oleh,
+//             datang_tanggal, nota_id, terima:[qty per item] }
+let _bl = null, _po = []
+const tglLokal = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const hariIni = () => tglLokal(new Date())
+const tambahHari = (t, n) => { const d = new Date(t + 'T00:00:00'); d.setDate(d.getDate() + n); return tglLokal(d) }
+const selisihHari = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 864e5)
+const waNo = w => String(w || '').replace(/\D/g, '').replace(/^0/, '62')
+const lsGet = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d } catch (e) { return d } }
+const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)) } catch (e) {} }
+const budgetBl = () => +(document.getElementById('bl-budget').value.replace(/\D/g, '')) || 0
+const keBelanja = () => document.querySelector('.nav-item[data-page="belanja"]').click()
+window.keBelanja = keBelanja
+
+async function loadBelanja() {
+  const b = lsGet('bl_budget', ''); if (b && !document.getElementById('bl-budget').value) document.getElementById('bl-budget').value = (+b).toLocaleString('id-ID')
+  const o = lsGet('bl_opsi', null); if (o && !_bl) { document.getElementById('bl-bulan').value = o.bulan || '1'; document.getElementById('bl-mode').value = o.mode || 'rek'; document.getElementById('bl-final').checked = o.final !== false }
+  await loadPO(); await hitungBelanja()
+}
+window.formatBudget = el => { const v = el.value.replace(/\D/g, ''); el.value = v ? (+v).toLocaleString('id-ID') : ''; lsSet('bl_budget', v)
+  clearTimeout(window._blT); window._blT = setTimeout(() => { if (_bl) aturBudget() }, 350) }
+async function muatFinalOrder() { const d = hiDb(); if (!d) return {}; try { return (await d.collection('settings').doc('final_order').get()).data()?.m || {} } catch (e) { return {} } }
+
+window.hitungBelanja = async () => {
+  const box = document.getElementById('bl-hasil'); box.innerHTML = '<div class="loading"><div class="spinner"></div><span>Menghitung kebutuhan, harga & supplier…</span></div>'
+  const bulan = +document.getElementById('bl-bulan').value || 1, mode = document.getElementById('bl-mode').value, pakaiFinal = document.getElementById('bl-final').checked
+  lsSet('bl_opsi', { bulan: String(bulan), mode, final: pakaiFinal })
+  try {
+    const [, , , fo] = await Promise.all([muatSupplier(), muatLaku(), _bh ? null : hitungBandingHarga(), pakaiFinal ? muatFinalOrder() : {}])
+    const lamaSup = n => +(supplierList.find(x => x.nama === n)?.lama) || 0
+    const foU = {}; Object.entries(fo || {}).forEach(([k, v]) => { if (+v > 0) foU[k.toUpperCase()] = +v })
+    // Barang yang sudah dipesan (PO belum datang) tidak diusulkan lagi
+    const dipesan = {}; _po.filter(x => x.status === 'dipesan').forEach(x => (x.items || []).forEach(it => { const K = String(it.sku).toUpperCase(); dipesan[K] = (dipesan[K] || 0) + (+it.qty || 0) }))
+    const items = []
+    _bh.produk.forEach(p => {
+      const K = String(p.sku || p.id).toUpperCase(), L = lakuSku(p), F = foU[K] || 0
+      if (!(L > 0) && !(F > 0)) return
+      const opsi = Object.entries(_bh.harga[K] || {}).map(([n, e]) => ({ n, harga: +e.harga || 0, nama: e.nama || '', jenis: e.jenis || 'nota', lama: lamaSup(n), kual: +(_bh.kual[K + '|' + n]?.nilai) || 0 }))
+      if (p.supplier && !opsi.some(o => o.n === p.supplier)) opsi.push({ n: p.supplier, harga: modalP(p), nama: '', jenis: 'modal', lama: lamaSup(p.supplier), kual: +(_bh.kual[K + '|' + p.supplier]?.nilai) || 0 })
+      opsi.sort((a, b) => (a.harga || 9e15) - (b.harga || 9e15))
+      items.push({ K, p, L, F, stok: totalStok(p), dipesan: dipesan[K] || 0, opsi })
+    })
+    _bl = { items, bulan, mode, final: pakaiFinal, ubah: lsGet('bl_ubah', {}), adaFinal: Object.keys(foU).length }
+    aturBudget()
+  } catch (e) { console.error(e); box.innerHTML = `<p style="color:#b91c1c">Gagal menghitung: ${esc(e.message)}</p>` }
+}
+function pilihSupBl(it) {
+  const u = _bl.ubah[it.K]?.sup; if (u) { const o = it.opsi.find(x => x.n === u); if (o) return o }
+  const utama = it.opsi.find(o => o.n === it.p.supplier)
+  const ok = it.opsi.filter(o => o.harga > 0 && !(o.kual > 0 && o.kual <= 2))   // kualitas ⭐1–2 tidak diusulkan
+  if (_bl.mode === 'utama' && utama) return utama
+  if (_bl.mode === 'cepat') { const c = ok.filter(o => o.lama > 0).sort((a, b) => a.lama - b.lama || a.harga - b.harga)[0]; if (c) return c }
+  if (ok[0] && utama && ok.includes(utama) && utama.harga === ok[0].harga) return utama
+  return ok[0] || utama || it.opsi[0] || null
+}
+function aturBudget() {
+  const B = budgetBl()
+  const rows = _bl.items.map(it => {
+    const s = pilihSupBl(it), lama = s?.lama || 0, beli = (s?.harga > 0 ? s.harga : modalP(it.p)) || 0, jual = hargaP(it.p), ub = _bl.ubah[it.K] || {}
+    const target = Math.ceil(it.L * _bl.bulan + it.L / 30 * lama)
+    const usul = Math.max(0, (it.F > 0 ? it.F : target - it.stok) - it.dipesan)
+    const qty = ub.qty != null ? ub.qty : usul
+    const kondisi = it.stok <= 0 ? 'kosong' : it.stok < it.L / 30 * Math.max(lama, 7) ? 'kritis' : 'isi'
+    const untung = jual > 0 && beli > 0 ? jual - beli : 0
+    const roi = beli > 0 && qty > 0 ? untung * Math.min(qty, Math.max(it.L, 1) * _bl.bulan) / (beli * qty) : 0   // untung per Rp modal
+    const tier = untung <= 0 ? 0 : kondisi === 'kosong' ? 3 : kondisi === 'kritis' ? 2 : 1
+    return { ...it, s, lama, beli, jual, untung, usul, qty, manual: ub.qty != null, keluar: !!ub.keluar, kondisi, roi, tier, ambil: 0, status: '' }
+  }).filter(r => r.qty > 0 || r.manual)
+  const urut = rows.filter(r => !r.keluar && r.qty > 0).sort((a, b) => b.tier - a.tier || b.roi - a.roi || b.L - a.L)
+  let sisa = B > 0 ? B : Infinity
+  urut.forEach((r, i) => { r.rank = i + 1
+    if (!(r.beli > 0)) { r.status = 'tanpa_harga'; return }
+    const biaya = r.qty * r.beli
+    if (biaya <= sisa) { r.ambil = r.qty; sisa -= biaya; r.status = 'masuk' }
+    else if (!r.manual && Math.floor(sisa / r.beli) >= 1) { r.ambil = Math.floor(sisa / r.beli); sisa -= r.ambil * r.beli; r.status = 'sebagian' }
+    else r.status = 'luar' })
+  rows.filter(r => r.keluar).forEach(r => r.status = 'keluar')
+  _bl.rows = rows
+  renderBelanja(B, sisa)
+}
+function rowBelanja(r) {
+  const K = jsStr(r.K)
+  const tag = (r.rank ? `<span class="bl-tag" style="background:#f1f5f9;color:#334155">#${r.rank}</span>` : '')
+    + (r.kondisi === 'kosong' ? '<span class="bl-tag" style="background:#fee2e2;color:#991b1b">kosong</span>' : r.kondisi === 'kritis' ? '<span class="bl-tag" style="background:#fef3c7;color:#92400e">habis sebelum kiriman datang</span>' : '')
+    + (r.F > 0 && _bl.final ? '<span class="bl-tag" style="background:#e0e7ff;color:#3730a3">Final Order</span>' : '')
+    + (r.untung <= 0 && r.beli > 0 && r.jual > 0 ? '<span class="bl-tag" style="background:#fee2e2;color:#991b1b">tidak untung</span>' : '')
+  const opsi = r.opsi.length ? r.opsi.map(o => `<option value="${esc(o.n)}"${o.n === r.s?.n ? ' selected' : ''}>${o.n === r.p.supplier ? '⭐ ' : ''}${esc(o.n)} · ${o.harga ? rpS(o.harga) : 'harga ?'}${o.lama ? ' · ' + o.lama + ' hr' : ''}${o.kual ? ' · ' + '★'.repeat(o.kual) : ''}${o.jenis === 'penawaran' ? ' · penawaran' : o.jenis === 'catatan' ? ' · catatan' : ''}</option>`).join('')
+    : '<option value="">— belum ada supplier & harga —</option>'
+  const q = r.status === 'masuk' || r.status === 'sebagian' ? r.ambil : r.qty
+  return `<div class="bl-item${r.keluar ? ' keluar' : ''}">
+    <input type="checkbox" ${r.keluar ? '' : 'checked'} title="Ikut dibeli" onchange="blKeluar('${K}', !this.checked)" style="width:18px;height:18px;margin-top:2px">
+    <div style="min-width:0"><b>${esc(namaProduk(r.p))}</b>${tag}
+      <div class="bl-sub">${esc(r.K)} · stok ${num(r.stok)} · laku ${r.L}/bln${r.dipesan ? ' · sudah di-PO ' + num(r.dipesan) : ''}${r.jual ? ' · jual ' + rpS(r.jual) : ''}${r.untung > 0 ? ' · untung ' + rpS(r.untung) + '/pcs' : ''}</div></div>
+    <div style="text-align:right;white-space:nowrap"><b>${rpS(q * r.beli)}</b></div>
+    <div class="bl-atur"><select onchange="blSup('${K}', this.value)" ${r.opsi.length ? '' : 'disabled'}>${opsi}</select>
+      <span style="white-space:nowrap">qty <input type="number" min="0" inputmode="numeric" value="${q}" onchange="blQty('${K}', this.value)"> × ${r.beli ? rpS(r.beli) : '<span style="color:#b91c1c">modal ?</span>'}</span>
+      ${r.status === 'sebagian' ? `<span class="bl-sub" style="color:#92400e">butuh ${num(r.qty)}, dipotong budget</span>` : ''}${r.manual ? `<span class="bl-sub">diubah manual (usulan ${num(r.usul)})</span>` : ''}</div>
+  </div>`
+}
+function renderBelanja(B, sisa) {
+  const rows = _bl.rows, ambil = rows.filter(r => r.status === 'masuk' || r.status === 'sebagian')
+  const luar = rows.filter(r => r.status === 'luar'), tanpa = rows.filter(r => r.status === 'tanpa_harga'), keluar = rows.filter(r => r.status === 'keluar')
+  const total = ambil.reduce((t, r) => t + r.ambil * r.beli, 0), untungBln = ambil.reduce((t, r) => t + Math.min(r.ambil, r.L * _bl.bulan) * r.untung, 0)
+  const kurang = luar.reduce((t, r) => t + r.qty * r.beli, 0) + ambil.filter(r => r.status === 'sebagian').reduce((t, r) => t + (r.qty - r.ambil) * r.beli, 0)
+  // Kelompokkan per supplier → 1 PO per supplier
+  const g = {}; ambil.forEach(r => { const n = r.s?.n || ''; (g[n] = g[n] || { n, rows: [], total: 0 }).rows.push(r); g[n].total += r.ambil * r.beli })
+  _bl.grup = Object.values(g).sort((a, b) => (!a.n) - (!b.n) || b.total - a.total)
+  const kartu = (ikon, judul, val, sub, bg, fg) => `<div class="ringkas-kartu" style="background:${bg};color:${fg};cursor:default"><div class="rk-ikon">${ikon} ${judul}</div><div class="rk-val">${val}</div><div class="rk-sub">${sub}</div></div>`
+  document.getElementById('bl-ringkas').innerHTML = `<div class="ringkas-grid" style="margin-bottom:14px">
+    ${kartu('🛒', 'Total belanja', rpS(total), `${num(ambil.length)} barang · ${num(_bl.grup.filter(x => x.n).length)} supplier`, '#ecfdf5', '#166534')}
+    ${kartu('💵', 'Sisa budget', B > 0 ? rpS(sisa) : '—', B > 0 ? 'dari ' + rpS(B) : 'budget belum diisi (tanpa batas)', '#eff6ff', '#1e40af')}
+    ${kartu('📈', 'Perkiraan untung', rpS(untungBln), `dari barang ini, ${_bl.bulan < 1 ? '2 minggu' : _bl.bulan + ' bulan'} ke depan`, '#fefce8', '#854d0e')}
+    ${kartu('⏳', 'Belum kebeli', rpS(kurang), `${num(luar.length)} barang tidak masuk budget`, '#fef2f2', '#991b1b')}</div>
+    ${!lakuPerSku || !Object.keys(lakuPerSku).length ? `<p style="font-size:12px;color:#b91c1c;margin:-6px 0 12px">${esc(lakuInfo || 'Data penjualan belum ada.')}</p>` : ''}`
+  const grupHTML = (x, i) => { const sup = supplierList.find(s => s.nama === x.n)
+    return `<div class="bl-sup"><div class="bl-sup-kepala"><div><b style="font-size:14px">${x.n ? '🏭 ' + esc(x.n) : '❓ Belum ada supplier'}</b>
+      <div class="bl-sub" style="font-size:11px;color:#666">${num(x.rows.length)} barang · <b>${rpS(x.total)}</b>${sup?.lama ? ' · kirim ±' + sup.lama + ' hari' : ''}${x.n && !sup?.wa ? ' · <span style="color:#b91c1c">no. WA belum diisi</span>' : ''}</div></div>
+      ${x.n ? `<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="buatPO(${i})">📲 Simpan PO & kirim WA</button><button class="btn btn-secondary btn-sm" onclick="cetakPOGrup(${i})">🖨️ Cetak / PDF</button></div>` : '<span class="bl-sub" style="font-size:11px">pilih supplier per barang dulu</span>'}</div>
+      ${x.rows.sort((a, b) => a.rank - b.rank).map(rowBelanja).join('')}</div>` }
+  const lipat = (judul, list, ket) => list.length ? `<details class="card" style="padding:12px 14px"><summary style="cursor:pointer;font-weight:700;font-size:14px">${judul} (${list.length})</summary><p style="font-size:12px;color:#666;margin:6px 0">${ket}</p><div class="bl-sup">${list.map(rowBelanja).join('')}</div></details>` : ''
+  document.getElementById('bl-hasil').innerHTML = (_bl.grup.length ? _bl.grup.map(grupHTML).join('') : `<div class="card"><p style="color:#666;font-size:13px">${rows.length ? 'Belum ada barang yang masuk budget.' : '✅ Tidak ada barang yang perlu dibeli sekarang (stok cukup / sudah di-PO).'}</p></div>`)
+    + lipat('⏳ Belum masuk budget', luar, 'Urutan sesuai prioritas — tambah budget atau kurangi qty barang lain supaya ikut.')
+    + lipat('❔ Belum ada harga beli', tanpa, 'Isi modal di <b>Isi HPP</b> atau masukkan nota/penawaran supaya bisa dihitung.')
+    + lipat('🚫 Tidak ikut dibeli', keluar, 'Centang lagi untuk memasukkan kembali.')
+}
+const ubahBl = (K, v) => { _bl.ubah[K] = { ..._bl.ubah[K], ...v }; Object.keys(_bl.ubah[K]).forEach(k => _bl.ubah[K][k] == null && delete _bl.ubah[K][k]); lsSet('bl_ubah', _bl.ubah); aturBudget() }
+window.blKeluar = (K, v) => ubahBl(K, { keluar: v || null })
+window.blSup = (K, n) => ubahBl(K, { sup: n || null })
+window.blQty = (K, v) => { const r = _bl.rows.find(x => x.K === K), q = Math.max(0, parseInt(v) || 0); ubahBl(K, { qty: r && q === r.usul ? null : q }) }
+window.resetBelanja = () => { if (_bl) { _bl.ubah = {}; lsSet('bl_ubah', {}); aturBudget(); toast('Usulan awal dikembalikan') } }
+
+// Pesan PO memakai nama barang versi supplier (nama di nota mereka) supaya mudah dikenali
+function teksPO(po) {
+  return `Halo ${po.supplier}, kami dari *Harmoni* mau pesan:\n\n` + po.items.map((it, i) => `${i + 1}. ${it.nama_sup || it.nama} — *${num(it.qty)} pcs*`).join('\n')
+    + `\n\nMohon info ketersediaan, total harga & kapan bisa dikirim. Terima kasih 🙏`
+}
+const linkWaPO = po => { const s = supplierList?.find(x => x.nama === po.supplier), w = waNo(s?.wa); return 'https://api.whatsapp.com/send?' + (w ? 'phone=' + w + '&' : '') + 'text=' + encodeURIComponent(teksPO(po)) }
+const poDariGrup = x => ({ supplier: x.n, tanggal: hariIni(), items: x.rows.map(r => ({ sku: r.K, nama: namaProduk(r.p), nama_sup: r.s?.nama || '', qty: r.ambil, harga: r.beli })), total: x.total })
+window.buatPO = async i => {
+  const x = _bl.grup[i]; if (!x?.n) return
+  const w = window.open('', '_blank')   // dibuka sekarang (sebelum simpan) supaya tidak diblokir browser HP
+  try {
+    const po = poDariGrup(x), lama = +(supplierList.find(s => s.nama === x.n)?.lama) || 0
+    Object.assign(po, { lama, perkiraan_datang: lama ? tambahHari(po.tanggal, lama) : '', status: 'dipesan', oleh: window._harmoniUserName || '', created_at: serverTimestamp() })
+    await addDoc(collection(db, 'po'), po)
+    po.items.forEach(it => delete _bl.ubah[it.sku]); lsSet('bl_ubah', _bl.ubah)   // ubahan manual barang yang sudah di-PO dihapus supaya tidak diusulkan dobel
+    if (w) w.location.href = linkWaPO(po); else location.href = linkWaPO(po)
+    toast(`✅ PO ${x.n} tersimpan — kirim pesannya di WA`)
+    await loadPO(); await hitungBelanja()
+  } catch (e) { if (w) w.close(); toast('Gagal menyimpan PO: ' + e.message, 'error') }
+}
+function cetakPO(po) {
+  const w = window.open('', '_blank'); if (!w) return toast('Izinkan pop-up untuk mencetak', 'error')
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PO ${esc(po.supplier)} ${esc(po.tanggal)}</title>
+    <style>body{font-family:system-ui,sans-serif;padding:24px;color:#111;max-width:800px;margin:auto}h1{font-size:20px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13px}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}td.n{text-align:right}tfoot td{font-weight:700}.k{color:#555;font-size:13px}@media print{button{display:none}}</style></head><body>
+    <h1>PURCHASE ORDER — HARMONI</h1><div class="k">Kepada: <b>${esc(po.supplier)}</b> · Tanggal: ${esc(po.tanggal)}${po.perkiraan_datang ? ' · Perkiraan datang: ' + esc(po.perkiraan_datang) : ''}</div>
+    <table><thead><tr><th>No</th><th>Barang</th><th>Kode</th><th>Qty</th><th>Harga</th><th>Subtotal</th></tr></thead><tbody>
+    ${po.items.map((it, i) => `<tr><td>${i + 1}</td><td>${esc(it.nama_sup || it.nama)}</td><td>${esc(it.sku)}</td><td class="n">${num(it.qty)}</td><td class="n">${rpS(it.harga)}</td><td class="n">${rpS(it.qty * it.harga)}</td></tr>`).join('')}
+    </tbody><tfoot><tr><td colspan="5">Total perkiraan</td><td class="n">${rpS(po.total)}</td></tr></tfoot></table>
+    <p class="k">Harga = harga terakhir yang kami terima; mohon konfirmasi bila berubah.</p><button onclick="print()" style="padding:10px 18px;font-size:15px">🖨️ Cetak / Simpan PDF</button>
+    <script>setTimeout(()=>print(),300)<\/script></body></html>`)
+  w.document.close()
+}
+window.cetakPOGrup = i => { const x = _bl.grup[i]; if (x) cetakPO(poDariGrup(x)) }
+window.cetakPOSimpan = i => cetakPO(_po[i])
+window.waPO = i => { const po = _po[i]; if (po) window.open(linkWaPO(po), '_blank') }
+
+async function loadPO() {
+  try { await muatSupplier(); _po = (await getDocs(collection(db, 'po'))).docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => String(b.tanggal).localeCompare(String(a.tanggal)) || (b.created_at?.seconds || 0) - (a.created_at?.seconds || 0)) }
+  catch (e) { console.warn('po', e); _po = [] }
+  renderPO()
+}
+function renderPO() {
+  const box = document.getElementById('po-list'); if (!box) return
+  const semua = document.getElementById('po-semua')?.checked, now = hariIni()
+  const list = _po.map((po, i) => ({ po, i })).filter(({ po }) => semua || po.status === 'dipesan')
+  const aktif = _po.filter(p => p.status === 'dipesan'), telat = aktif.filter(p => p.perkiraan_datang && p.perkiraan_datang < now)
+  box.innerHTML = (aktif.length ? `<p style="font-size:13px;margin-bottom:10px">${num(aktif.length)} PO menunggu barang · <b>${rpS(aktif.reduce((t, p) => t + (+p.total || 0), 0))}</b>${telat.length ? ` · <b style="color:#b91c1c">${telat.length} terlambat</b>` : ''}</p>` : '')
+    + (list.length ? list.map(({ po, i }) => {
+      const tl = po.status === 'dipesan' && po.perkiraan_datang && po.perkiraan_datang < now, sisa = po.perkiraan_datang ? selisihHari(now, po.perkiraan_datang) : null
+      const st = po.status === 'datang' ? `<span class="bl-tag" style="background:#dcfce7;color:#166534">✅ datang ${esc(po.datang_tanggal || '')}</span>` : po.status === 'batal' ? '<span class="bl-tag" style="background:#f1f5f9;color:#475569">batal</span>'
+        : tl ? `<span class="bl-tag" style="background:#fee2e2;color:#991b1b">⚠️ terlambat ${-sisa} hari</span>` : `<span class="bl-tag" style="background:#eff6ff;color:#1e40af">⏳ dipesan${sisa != null ? sisa === 0 ? ' · datang hari ini' : ' · ±' + sisa + ' hari lagi' : ''}</span>`
+      const kurang = po.status === 'datang' && po.terima ? po.items.reduce((t, it, j) => t + Math.max(0, (+it.qty || 0) - (+po.terima[j] || 0)), 0) : 0
+      return `<div class="po-kartu${tl ? ' telat' : ''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>🏭 ${esc(po.supplier)}</b>${st}
+        <div style="font-size:12px;color:#666">PO ${esc(po.tanggal)}${po.perkiraan_datang ? ' · perkiraan datang ' + esc(po.perkiraan_datang) : ''} · ${num(po.items?.length || 0)} barang · <b>${rpS(po.total)}</b>${po.oleh ? ' · ' + esc(po.oleh) : ''}${kurang ? ` · <span style="color:#b91c1c">kurang ${num(kurang)} pcs</span>` : ''}</div></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:start">${po.status === 'dipesan' ? `<button class="btn btn-primary btn-sm" onclick="bukaTerimaPO(${i})">✅ Barang datang</button><button class="btn btn-secondary btn-sm" onclick="waPO(${i})">📲 WA</button>` : ''}<button class="btn btn-secondary btn-sm" onclick="cetakPOSimpan(${i})">🖨️</button>${po.status === 'dipesan' ? `<button class="btn btn-sm" style="background:#f1f5f9;color:#475569" onclick="batalPO(${i})">Batal</button>` : ''}</div></div>
+        <div style="font-size:12px;color:#444;margin-top:6px">${(po.items || []).map((it, j) => `${esc(it.nama)} × ${num(it.qty)}${po.terima ? ` <span style="color:#666">(datang ${num(po.terima[j] || 0)})</span>` : ''}`).join(' · ')}</div>
+        <div id="po-f-${i}"></div></div>` }).join('') : `<p style="color:#999;font-size:13px">${semua ? 'Belum ada PO.' : 'Tidak ada PO yang menunggu barang.'}</p>`)
+}
+window.renderPO = renderPO
+window.batalPO = async i => { const po = _po[i]; if (!po || !confirm(`Batalkan PO ${po.supplier} tanggal ${po.tanggal}?`)) return
+  try { await updateDoc(doc(db, 'po', po.id), { status: 'batal', batal_oleh: window._harmoniUserName || '', updated_at: serverTimestamp() }); toast('PO dibatalkan'); await loadPO(); if (_bl) await hitungBelanja() } catch (e) { toast('Gagal: ' + e.message, 'error') } }
+window.bukaTerimaPO = i => {
+  const po = _po[i], el = document.getElementById('po-f-' + i); if (!po || !el) return
+  if (el.innerHTML) { el.innerHTML = ''; return }
+  el.innerHTML = `<div style="border-top:1px dashed #cbd5e1;margin-top:10px;padding-top:10px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:6px">Cocokkan dengan nota dari supplier</div>
+    <table style="width:100%"><thead><tr><th style="text-align:left">Barang</th><th>Dipesan</th><th>Datang</th><th>Harga di nota</th></tr></thead><tbody>
+    ${po.items.map((it, j) => `<tr><td>${esc(it.nama)}<div style="font-size:11px;color:#666">${esc(it.sku)}</div></td><td class="number">${num(it.qty)}</td><td><input type="number" min="0" inputmode="numeric" id="po-q-${i}-${j}" value="${+it.qty || 0}" style="width:72px"></td><td><input type="number" min="0" inputmode="numeric" id="po-h-${i}-${j}" value="${+it.harga || 0}" style="width:110px"></td></tr>`).join('')}</tbody></table>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-top:8px">
+      <label style="font-size:12px">Tanggal datang<br><input type="date" id="po-tgl-${i}" value="${hariIni()}" style="width:100%"></label>
+      <label style="font-size:12px">No. invoice<br><input id="po-inv-${i}" placeholder="opsional" style="width:100%"></label>
+      <label style="font-size:12px">Masuk ke<br><select id="po-lok-${i}" style="width:100%"><option value="gudang">Gudang</option><option value="toko">Toko</option></select></label></div>
+    <label style="font-size:12px;display:flex;gap:6px;align-items:center;margin-top:8px"><input type="checkbox" id="po-stok-${i}" checked> Tambahkan ke stok di Stok Manager</label>
+    <label style="font-size:12px;display:flex;gap:6px;align-items:center;margin-top:4px"><input type="checkbox" id="po-modal-${i}" checked> Perbarui modal (HPP) sesuai harga nota</label>
+    <p style="font-size:11px;color:#92400e;margin:6px 0">Barang datang tetap perlu diinput juga di <b>Olsera</b> (penerimaan barang) — upload stok Olsera berikutnya akan menimpa stok di sini.</p>
+    <button class="btn btn-primary btn-sm" id="po-btn-${i}" onclick="terimaPO(${i})">💾 Simpan — jadi nota</button></div>`
+}
+window.terimaPO = async i => {
+  const po = _po[i]; if (!po) return
+  const v = id => document.getElementById(id), lok = v('po-lok-' + i).value, tambah = v('po-stok-' + i).checked, perbarui = v('po-modal-' + i).checked, tanggal = v('po-tgl-' + i).value || hariIni()
+  const items = po.items.map((it, j) => ({ ...it, terima: Math.max(0, parseInt(v(`po-q-${i}-${j}`).value) || 0), hargaN: Math.max(0, +v(`po-h-${i}-${j}`).value || 0) }))
+  if (!items.some(x => x.terima > 0)) return toast('Isi jumlah barang yang datang', 'error')
+  const btn = v('po-btn-' + i); btn.disabled = true; btn.textContent = 'Menyimpan…'
+  try {
+    const nota = await addDoc(collection(db, 'nota'), { supplier: po.supplier, tanggal, no_invoice: v('po-inv-' + i).value.trim(), jenis: 'nota', po_id: po.id,
+      items: items.filter(x => x.terima > 0).map(x => ({ nama_barang: x.nama_sup || x.nama, sku: x.sku, qty: x.terima, harga_satuan: x.hargaN, catatan: '' })), created_at: serverTimestamp() })
+    const produk = await produkSemua(), modalPas = []; let nStok = 0
+    for (const x of items.filter(x => x.terima > 0)) {
+      const p = produk.find(q => String(q.sku || q.id).toUpperCase() === String(x.sku).toUpperCase()); if (!p) continue
+      const up = {}
+      if (tambah) { const cur = +((await getDoc(doc(db, 'products', p.id))).data()?.['stock_qty_' + lok]) || 0; up['stock_qty_' + lok] = cur + x.terima; if (!(p.lokasi || []).includes(lok)) up.lokasi = [...(p.lokasi || []), lok]; nStok += x.terima }
+      if (perbarui && x.hargaN > 0 && x.hargaN !== +p['buy_price_' + lok]) up['buy_price_' + lok] = x.hargaN
+      if (!Object.keys(up).length) continue
+      await updateDoc(doc(db, 'products', p.id), { ...up, updated_at: serverTimestamp() }); Object.assign(p, up)
+      if (up['stock_qty_' + lok] != null) sinkronStokKeAnalitik(p.sku || p.id, lok, up['stock_qty_' + lok])
+      if (up['buy_price_' + lok] != null) modalPas.push([p.sku || p.id, modalP(p)])
+    }
+    if (modalPas.length) sinkronModalKeAnalitik(modalPas)
+    await updateDoc(doc(db, 'po', po.id), { status: 'datang', datang_tanggal: tanggal, nota_id: nota.id, terima: items.map(x => x.terima), harga_nota: items.map(x => x.hargaN), diterima_oleh: window._harmoniUserName || '', updated_at: serverTimestamp() })
+    _bh = null; invalidateDashboard()
+    toast(`✅ Nota ${po.supplier} tersimpan${nStok ? ` · stok ${lok} +${num(nStok)}` : ''}${modalPas.length ? ` · ${modalPas.length} modal diperbarui` : ''}. Jangan lupa input di Olsera.`)
+    await loadPO(); if (_bl) await hitungBelanja()
+  } catch (e) { toast('Gagal: ' + e.message, 'error'); btn.disabled = false; btn.textContent = '💾 Simpan — jadi nota' }
+}

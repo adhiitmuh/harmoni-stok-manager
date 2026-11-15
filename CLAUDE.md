@@ -11,6 +11,7 @@ Aturan kerja lintas app: lihat `harmoni-indonesia/CLAUDE.md`. Naikkan `?v=` di l
 - `supplier/{ID}` — {nama, lama (hari kirim), wa, catatan}
 - `cocok_nota/{kunci nama}` — {nama, sku|null, status:'cocok'|'otomatis'|'abaikan'} jawaban konfirmasi nama nota ↔ produk (tidak ditanya lagi)
 - `kualitas/{SKU__SUP}` — {sku, supplier, nilai 1–5, catatan}
+- `po` — {supplier, tanggal, lama, perkiraan_datang, status:'dipesan'|'datang'|'batal', items:[{sku, nama, nama_sup, qty, harga}], total, terima[], nota_id}
 
 ## Sinkron dengan Analitik (project harmoni-indonesia `settings/*`)
 - Simpan stok / upload Olsera → `stok_fisik`; upload stok di Analitik → menulis `products` (hanya yang berubah; modal manual tidak ditimpa 0).
@@ -20,7 +21,9 @@ Aturan kerja lintas app: lihat `harmoni-indonesia/CLAUDE.md`. Naikkan `?v=` di l
 ## Halaman
 Dashboard (ringkasan keputusan: penjualan hilang, toko kosong gudang ada, modal tertahan, modal naik, margin tipis) ·
 Input Nota/Harga (jenis, tempel daftar harga, pilih produk) · Isi HPP · Upload Olsera · Update Stok (filter kondisi, supplier per barang, set massal) ·
-Supplier (lama kirim, usulan dari nota, rata-rata kualitas) · Banding Harga (antrean konfirmasi, harga per supplier, kualitas, jadikan utama) · Rekonsiliasi.
+Supplier (lama kirim, usulan dari nota, rata-rata kualitas) · Banding Harga (antrean konfirmasi, harga per supplier, kualitas, jadikan utama) ·
+Belanja (budget → prioritas kosong&laku lalu untung/Rp modal; butuh = laku×lama stok + laku selama kirim − stok − sudah di-PO, atau Final Order; supplier rekomendasi/utama/tercepat; PO per supplier via link WA + cetak; Barang datang → nota + stok + modal) · Rekonsiliasi.
+Menu bawah HP bisa digeser (9 menu).
 
 ## Rencana berikutnya
-4B Daftar Belanja berbasis budget → PO per supplier via WA → nota masuk otomatis dari PO; 5 kalender musim; 6 opname (staff hitung, Owner setujui).
+5 kalender musim; 6 opname (staff hitung, Owner setujui).
