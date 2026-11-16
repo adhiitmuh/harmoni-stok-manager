@@ -431,7 +431,11 @@ window.switchRekonTab = (tab) => {
 // ── UPLOAD DATA OLSERA ─────────────────────────────────────────────────────
 const uploadData = { gudang: [], toko: [] };
 
-function loadSinkron() {} // page loaded on nav click, no init needed
+function loadSinkron() {   // tampilkan kapan stok terakhir tersambung (dari Analitik / Stok Manager)
+  muatStokFisik().then(f => { const el = document.getElementById('sinkron-terakhir'); if (!el || !f) return
+    const tgl = t => t?.toDate ? t.toDate().toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) : 'belum pernah'
+    el.innerHTML = `<br>Terakhir masuk — Toko: <b>${tgl(f.toko_updated_at)}</b>${f.toko_updated_by ? ' (' + esc(f.toko_updated_by) + ')' : ''} · Gudang: <b>${tgl(f.gudang_updated_at)}</b>${f.gudang_updated_by ? ' (' + esc(f.gudang_updated_by) + ')' : ''}` })
+}
 
 window.handleDrop = (e, lokasi) => {
   e.preventDefault();
