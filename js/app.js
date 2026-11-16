@@ -38,6 +38,7 @@ function loadPage(id) {
   if (id === 'supplier')      loadSupplier();
   if (id === 'banding')       loadBanding();
   if (id === 'belanja')       loadBelanja();
+  if (id === 'opname')        loadOpname();
 }
 
 // ── DASHBOARD ──────────────────────────────────────────────────────────────
@@ -130,6 +131,9 @@ async function renderRingkasan(products) {
     + kartu('mati', '🧊', 'Modal tertahan', rp(tertahan), `${num(mati.length)} barang tidak laku 6 bulan`, '#f1f5f9', '#334155')
     + kartu('modal_naik', '📈', 'Modal naik', num(naik.length) + ' barang', 'modal di Olsera naik >10% — cek harga jual', '#fff7ed', '#9a3412')
     + kartu('margin', '⚠️', 'Margin tipis / rugi', num(margin.length) + ' barang', 'harga jual < modal + 15%', '#fefce8', '#854d0e')
+  getDocs(collection(db, 'opname')).then(sn => { const tunggu = sn.docs.filter(d => d.data().status === 'menunggu').length, batas = tambahHari(hariIni(), -30)
+    const lama = products.filter(p => ['toko', 'gudang'].some(l => diLokasi(p, l) && (!p['opname_' + l] || p['opname_' + l] < batas))).length
+    box.insertAdjacentHTML('beforeend', `<button class="ringkas-kartu" style="background:${tunggu ? '#eff6ff' : '#f8fafc'};color:${tunggu ? '#1e40af' : '#334155'}" onclick="document.querySelector('.nav-item[data-page=opname]').click()"><div class="rk-ikon">🧮 Opname</div><div class="rk-val" style="font-size:16px">${tunggu ? tunggu + ' menunggu' : num(lama) + ' barang'}</div><div class="rk-sub">${tunggu ? 'perlu persetujuan · ' : ''}${num(lama)} barang belum dihitung &gt;30 hari</div></button>`) }).catch(() => {})
   muatMusim(true).then(ms => ms.map(m => ({ m, st: statusMusim(m) })).filter(x => x.st.aktif).forEach(({ m, st }) => box.insertAdjacentHTML('afterbegin', `<button class="ringkas-kartu" style="background:#fffbeb;color:#92400e;border-color:#fcd34d" onclick="keBelanja()"><div class="rk-ikon">📅 ${esc(m.nama)}</div><div class="rk-val" style="font-size:15px">${st.tahap === 'jalan' ? 'Sedang musim' : st.hari >= 14 ? Math.round(st.hari / 7) + ' minggu lagi' : st.hari + ' hari lagi'}</div><div class="rk-sub">${tglPendek(st.s)} – ${tglPendek(st.e)} · siapkan stok (laku ×${m.faktor})</div></button>`))).catch(() => {})
   getDocs(collection(db, 'po')).then(sn => { const now = hariIni(), a = sn.docs.map(d => d.data()).filter(p => p.status === 'dipesan'); if (!a.length) return
     const tl = a.filter(p => p.perkiraan_datang && p.perkiraan_datang < now).length
@@ -1404,3 +1408,162 @@ window.cariBarangMusim = async () => {
 }
 window.pilihSkuMusim = () => { window._msSku = [...document.querySelectorAll('#ms-usul input[data-k]:checked')].map(i => i.dataset.k); renderSkuMusim(true) }
 function renderSkuMusim(dariUsul) { const el = document.getElementById('ms-sku-n'); if (el) el.textContent = window._msSku?.length ? `${window._msSku.length} barang dipilih` + (dariUsul ? '' : ' (klik "Cari dari data penjualan" untuk mengubah)') : '' }
+
+// ── OPNAME ─────────────────────────────────────────────────────────────────
+// opname/{id} = { tanggal, lokasi, area, oleh, status:'menunggu'|'disetujui'|'ditolak', catatan,
+//                 items:[{id, sku, nama, sistem (stok saat dihitung), hitung, modal, dipakai?, stok_baru?}], selisih_rp, disetujui_oleh, alasan_tolak }
+// products.opname_toko / opname_gudang = tanggal terakhir dihitung (diisi saat disetujui)
+// Stok sistem tidak ditampilkan ke staff (hitung buta); selisih & persetujuan hanya untuk Owner.
+let _opSesi = []
+const isOwnerSM = () => !!window._harmoniIsOwner
+const drafOp = () => lsGet('op_draf', { lokasi: 'toko', area: '', catatan: '', items: [] })
+const simpanDrafOp = d => lsSet('op_draf', d)
+const stokLok = (p, lok) => +p['stock_qty_' + lok] || 0
+const diLokasi = (p, lok) => (p.lokasi || []).includes(lok) || stokLok(p, lok) !== 0
+async function loadOpname() {
+  const d = drafOp(); document.getElementById('op-lokasi').value = d.lokasi; document.getElementById('op-area').value = d.area || ''; document.getElementById('op-cat').value = d.catatan || ''
+  document.getElementById('op-lama-lok').value = d.lokasi
+  stokAllData = []; const prod = await produkSemua()   // selalu stok terbaru untuk hitung & persetujuan
+  const sel = document.getElementById('op-kat'); if (sel.options.length <= 1) [...new Set(prod.map(p => p.category).filter(Boolean))].sort().forEach(k => sel.add(new Option(k, k)))
+  await muatSesiOp(); renderDrafOp(); renderLamaOp()
+}
+document.addEventListener('harmoni-login', () => { if (document.getElementById('opname')?.classList.contains('active')) { renderTungguOp(); renderRiwayatOp(); renderRingkasOp() } })
+async function muatSesiOp() {
+  try { _opSesi = (await getDocs(collection(db, 'opname'))).docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.created_at?.seconds || 0) - (a.created_at?.seconds || 0) || String(b.tanggal).localeCompare(String(a.tanggal))) } catch (e) { console.warn('opname', e); _opSesi = [] }
+  const dl = document.getElementById('dl-area'); if (dl) dl.innerHTML = [...new Set(_opSesi.map(s => s.area).filter(Boolean))].map(a => `<option value="${esc(a)}">`).join('')
+  renderTungguOp(); renderRiwayatOp(); renderRingkasOp()
+}
+window.ubahDrafOp = () => { const d = drafOp(), lok = document.getElementById('op-lokasi').value
+  if (lok !== d.lokasi && d.items.some(x => x.hitung !== '')) { if (!confirm('Ganti lokasi? Hitungan yang sudah diisi tetap ada, tapi akan dianggap stok ' + lok + '.')) { document.getElementById('op-lokasi').value = d.lokasi; return } }
+  d.lokasi = lok; d.area = document.getElementById('op-area').value; d.catatan = document.getElementById('op-cat').value; simpanDrafOp(d) }
+const hasilCariOp = q => { q = q.trim().toUpperCase(); if (!q) return []; const lok = document.getElementById('op-lokasi').value
+  return stokAllData.filter(p => (namaProduk(p) + ' ' + (p.sku || p.id)).toUpperCase().includes(q)).sort((a, b) => diLokasi(b, lok) - diLokasi(a, lok) || (String(b.sku || '').toUpperCase() === q) - (String(a.sku || '').toUpperCase() === q)).slice(0, 10) }
+window.cariOp = () => { const box = document.getElementById('op-hasil'), h = hasilCariOp(document.getElementById('op-cari').value)
+  box.style.display = h.length ? 'block' : 'none'
+  box.innerHTML = h.map(p => `<button onmousedown="event.preventDefault()" onclick="tambahOp('${jsStr(p.id)}')"><span><b>${esc(namaProduk(p))}</b></span><span style="color:#666;white-space:nowrap">${esc(p.sku || p.id)}</span></button>`).join('') }
+document.addEventListener('click', e => { if (!e.target.closest?.('#op-hasil') && e.target.id !== 'op-cari') { const b = document.getElementById('op-hasil'); if (b) b.style.display = 'none' } })
+window.enterOp = () => { const q = document.getElementById('op-cari').value.trim(); if (!q) return
+  const pas = stokAllData.find(p => String(p.sku || p.id).toUpperCase() === q.toUpperCase()), h = pas ? [pas] : hasilCariOp(q)
+  if (h.length === 1) tambahOp(h[0].id); else if (!h.length) toast('Barang tidak ditemukan: ' + q, 'error') }
+window.tambahOp = (id, diam) => {
+  const p = stokAllData.find(x => x.id === id); if (!p) return
+  const d = drafOp(), scan = document.getElementById('op-scan')?.checked; let it = d.items.find(x => x.id === id)
+  if (it) { if (scan && !diam) it.hitung = String((+it.hitung || 0) + 1) }
+  else { it = { id, sku: p.sku || id, nama: namaProduk(p), hitung: scan && !diam ? '1' : '' }; d.items.unshift(it) }
+  simpanDrafOp(d)
+  if (diam) return
+  const c = document.getElementById('op-cari'); c.value = ''; document.getElementById('op-hasil').style.display = 'none'
+  renderDrafOp(id)
+  if (scan) c.focus(); else { const inp = document.getElementById('op-q-' + id); if (inp) { inp.focus(); inp.select() } }
+}
+window.isiHitungOp = (id, v) => { const d = drafOp(), it = d.items.find(x => x.id === id); if (!it) return; it.hitung = v === '' ? '' : String(Math.max(0, parseInt(v) || 0)); simpanDrafOp(d); renderJumlahOp() }
+window.hapusOp = id => { const d = drafOp(); d.items = d.items.filter(x => x.id !== id); simpanDrafOp(d); renderDrafOp() }
+window.kosongkanOp = () => { const d = drafOp(); if (d.items.length && !confirm('Kosongkan semua hitungan?')) return; d.items = []; d.catatan = ''; document.getElementById('op-cat').value = ''; simpanDrafOp(d); renderDrafOp() }
+window.tambahKategoriOp = () => { const k = document.getElementById('op-kat').value, lok = document.getElementById('op-lokasi').value; if (!k) return
+  const list = stokAllData.filter(p => p.category === k && diLokasi(p, lok)); list.forEach(p => tambahOp(p.id, true)); renderDrafOp(); toast(`${list.length} barang kategori ${k} ditambahkan`) }
+window.tambahLamaOp = n => { const lok = document.getElementById('op-lokasi').value, list = barangLamaOp(lok, 30).slice(0, n)
+  list.forEach(p => tambahOp(p.id, true)); renderDrafOp(); toast(list.length ? `${list.length} barang ditambahkan` : 'Semua barang sudah dihitung dalam 30 hari 👍') }
+function renderJumlahOp() { const d = drafOp(), n = d.items.filter(x => x.hitung !== '').length, b = document.getElementById('op-kirim'); if (b) b.textContent = `📤 Kirim untuk disetujui (${n}/${d.items.length})` }
+function renderDrafOp(baru) {
+  const d = drafOp(), box = document.getElementById('op-daftar'); if (!box) return
+  box.innerHTML = d.items.length ? `<div style="font-size:12px;color:#666">${d.items.length} barang · kotak kuning = belum diisi</div>` + d.items.map(it => `<div class="op-baris${it.id === baru ? ' baru' : ''}">
+      <div style="min-width:0"><b>${esc(it.nama)}</b><div style="font-size:11px;color:#666">${esc(it.sku)}</div></div>
+      <input type="number" min="0" inputmode="numeric" id="op-q-${esc(it.id)}" value="${esc(it.hitung)}" placeholder="?" onchange="isiHitungOp('${jsStr(it.id)}', this.value)" onkeydown="if(event.key==='Enter'){this.blur();document.getElementById('op-cari').focus()}">
+      <button class="nota-row-remove" onclick="hapusOp('${jsStr(it.id)}')" title="Hapus">✕</button></div>`).join('')
+    : '<p style="font-size:13px;color:#999">Belum ada barang. Cari / scan barang di atas, atau tambah satu kategori / barang terlama.</p>'
+  renderJumlahOp()
+}
+window.kirimOpname = async () => {
+  const d = drafOp(); ubahDrafOp(); const dd = drafOp()
+  if (!d.items.length) return toast('Belum ada barang yang dihitung', 'error')
+  const kosong = d.items.filter(x => x.hitung === ''); if (kosong.length) return toast(`${kosong.length} barang belum diisi jumlahnya (kotak kuning). Isi 0 bila tidak ada.`, 'error')
+  if (!dd.area.trim() && !confirm('Rak / area belum diisi. Tetap kirim?')) return
+  const btn = document.getElementById('op-kirim'); btn.disabled = true
+  try {
+    const items = d.items.map(it => { const p = stokAllData.find(x => x.id === it.id) || {}; return { id: it.id, sku: it.sku, nama: it.nama, sistem: stokLok(p, dd.lokasi), hitung: +it.hitung, modal: modalP(p) } })
+    await addDoc(collection(db, 'opname'), { tanggal: hariIni(), lokasi: dd.lokasi, area: dd.area.trim(), catatan: dd.catatan || '', oleh: window._harmoniUserName || '', status: 'menunggu', items, created_at: serverTimestamp() })
+    simpanDrafOp({ lokasi: dd.lokasi, area: '', catatan: '', items: [] }); document.getElementById('op-area').value = ''; document.getElementById('op-cat').value = ''
+    toast(`✅ ${items.length} barang dikirim — menunggu persetujuan Owner`); renderDrafOp(); await muatSesiOp()
+  } catch (e) { toast('Gagal mengirim: ' + e.message, 'error') } finally { btn.disabled = false; renderJumlahOp() }
+}
+// Stok baru = hitungan + perubahan stok sistem sejak dihitung (penjualan / upload Olsera setelah hitung)
+const stokBaruOp = (it, lok) => { const p = stokAllData.find(x => x.id === it.id); const kini = p ? stokLok(p, lok) : it.sistem; return { kini, baru: Math.max(0, it.hitung + (kini - it.sistem)) } }
+function renderTungguOp() {
+  const box = document.getElementById('op-tunggu'); if (!box) return
+  const list = _opSesi.filter(s => s.status === 'menunggu'), own = isOwnerSM()
+  box.innerHTML = list.length ? list.map(s => { const i = _opSesi.indexOf(s), beda = s.items.filter(x => x.hitung !== x.sistem), rpSel = s.items.reduce((t, x) => t + (x.hitung - x.sistem) * (x.modal || 0), 0)
+    return `<div class="po-kartu"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>${s.lokasi === 'gudang' ? '🏬 Gudang' : '🏪 Toko'}${s.area ? ' · ' + esc(s.area) : ''}</b>
+      <div style="font-size:12px;color:#666">${esc(s.tanggal)} · dihitung ${esc(s.oleh || '-')} · ${s.items.length} barang${own ? ` · <b style="color:${beda.length ? '#b91c1c' : '#166534'}">${beda.length ? beda.length + ' selisih (' + (rpSel >= 0 ? '+' : '−') + rpS(Math.abs(rpSel)) + ')' : 'semua cocok ✓'}</b>` : ''}${s.catatan ? ' · 📝 ' + esc(s.catatan) : ''}</div></div>
+      ${own ? `<button class="btn btn-secondary btn-sm" onclick="bukaSetujuOp(${i})">Periksa & setujui</button>` : '<span class="bl-tag" style="background:#eff6ff;color:#1e40af">menunggu Owner</span>'}</div><div id="op-s-${i}"></div></div>` }).join('')
+    : '<p style="font-size:13px;color:#999">Tidak ada opname yang menunggu.</p>'
+}
+window.bukaSetujuOp = i => {
+  const s = _opSesi[i], el = document.getElementById('op-s-' + i); if (!s || !el || !isOwnerSM()) return
+  if (el.innerHTML) { el.innerHTML = ''; return }
+  const urut = s.items.map((x, j) => ({ x, j })).sort((a, b) => Math.abs((b.x.hitung - b.x.sistem) * (b.x.modal || 1)) - Math.abs((a.x.hitung - a.x.sistem) * (a.x.modal || 1)))
+  el.innerHTML = `<div style="border-top:1px dashed #cbd5e1;margin-top:10px;padding-top:10px"><table style="width:100%"><thead><tr><th></th><th style="text-align:left">Barang</th><th>Sistem<br><span style="font-weight:400;font-size:10px">(Olsera)</span></th><th>Hitung</th><th>Selisih</th></tr></thead><tbody>
+    ${urut.map(({ x, j }) => { const sel = x.hitung - x.sistem, { kini, baru } = stokBaruOp(x, s.lokasi)
+      return `<tr style="${sel ? '' : 'color:#94a3b8'}"><td><input type="checkbox" id="op-c-${i}-${j}" ${sel ? 'checked' : ''} ${sel ? '' : 'disabled'}></td><td>${esc(x.nama)}<div style="font-size:11px;color:#666">${esc(x.sku)}${kini !== x.sistem ? ` · <span style="color:#92400e">stok sistem berubah ${num(x.sistem)}→${num(kini)} sejak dihitung → jadi ${num(baru)}</span>` : ''}</div></td>
+        <td class="number">${num(x.sistem)}</td><td class="number"><b>${num(x.hitung)}</b></td><td class="number" style="font-weight:700;color:${sel < 0 ? '#b91c1c' : sel > 0 ? '#1e40af' : 'inherit'}">${sel > 0 ? '+' : ''}${num(sel)}${sel && x.modal ? `<div style="font-size:10.5px;font-weight:400;white-space:nowrap">${sel > 0 ? '+' : '−'}${rpS(Math.abs(sel * x.modal))}</div>` : ''}</td></tr>` }).join('')}</tbody></table>
+    <p style="font-size:11px;color:#666;margin:6px 0">Yang dicentang: stok di Stok Manager diganti hasil hitung. Semua barang di daftar ini dicatat "sudah dihitung" hari ini. Selisih minus = barang hilang/rusak/salah input.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" id="op-ok-${i}" onclick="setujuiOp(${i})">✅ Setujui</button><button class="btn btn-sm" style="background:#fee2e2;color:#991b1b" onclick="tolakOp(${i})">↩ Tolak — hitung ulang</button></div></div>`
+}
+window.setujuiOp = async i => {
+  const s = _opSesi[i]; if (!s || !isOwnerSM()) return
+  const btn = document.getElementById('op-ok-' + i); btn.disabled = true; btn.textContent = 'Menyimpan…'
+  try {
+    const items = s.items.map((x, j) => ({ ...x, dipakai: !!document.getElementById(`op-c-${i}-${j}`)?.checked }))
+    let n = 0
+    for (const x of items) {
+      const p = stokAllData.find(q => q.id === x.id); if (!p) continue
+      const up = { ['opname_' + s.lokasi]: s.tanggal }
+      if (x.dipakai) { x.stok_baru = stokBaruOp(x, s.lokasi).baru; up['stock_qty_' + s.lokasi] = x.stok_baru; n++ }
+      await updateDoc(doc(db, 'products', p.id), { ...up, updated_at: serverTimestamp() }); Object.assign(p, up)
+      if (x.dipakai) sinkronStokKeAnalitik(p.sku || p.id, s.lokasi, x.stok_baru)
+    }
+    const selisih_rp = items.filter(x => x.dipakai).reduce((t, x) => t + (x.hitung - x.sistem) * (x.modal || 0), 0)
+    await updateDoc(doc(db, 'opname', s.id), { status: 'disetujui', items, selisih_rp, disetujui_oleh: window._harmoniUserName || '', disetujui_at: serverTimestamp() })
+    toast(`✅ Opname disetujui · ${n} stok diperbarui. Sesuaikan juga di Olsera (unduh CSV di Riwayat).`); invalidateDashboard(); _bh = null
+    await muatSesiOp(); renderLamaOp()
+  } catch (e) { toast('Gagal: ' + e.message, 'error'); btn.disabled = false; btn.textContent = '✅ Setujui' }
+}
+window.tolakOp = async i => { const s = _opSesi[i]; if (!s || !isOwnerSM()) return; const a = prompt('Alasan ditolak / yang perlu dihitung ulang:'); if (a === null) return
+  try { await updateDoc(doc(db, 'opname', s.id), { status: 'ditolak', alasan_tolak: a.trim(), disetujui_oleh: window._harmoniUserName || '', disetujui_at: serverTimestamp() }); toast('Opname ditolak — staff perlu hitung ulang'); await muatSesiOp() } catch (e) { toast('Gagal: ' + e.message, 'error') } }
+window.hitungUlangOp = i => { const s = _opSesi[i]; if (!s) return; const d = drafOp()
+  if (d.items.length && !confirm('Daftar hitung sekarang akan diganti dengan barang dari opname ini. Lanjut?')) return
+  simpanDrafOp({ lokasi: s.lokasi, area: s.area || '', catatan: '', items: s.items.map(x => ({ id: x.id, sku: x.sku, nama: x.nama, hitung: '' })) }); loadOpname(); scrollTo({ top: 0, behavior: 'smooth' }); toast('Barang dimasukkan ke daftar hitung — hitung ulang lalu kirim') }
+function renderRiwayatOp() {
+  const box = document.getElementById('op-riwayat'); if (!box) return
+  const list = _opSesi.filter(s => s.status !== 'menunggu').slice(0, 30), own = isOwnerSM()
+  box.innerHTML = list.length ? list.map(s => { const i = _opSesi.indexOf(s), dip = (s.items || []).filter(x => x.dipakai)
+    return `<div class="po-kartu" style="padding:10px 12px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:start"><div>
+      <b>${s.lokasi === 'gudang' ? '🏬 Gudang' : '🏪 Toko'}${s.area ? ' · ' + esc(s.area) : ''}</b> ${s.status === 'disetujui' ? '<span class="bl-tag" style="background:#dcfce7;color:#166534">disetujui</span>' : '<span class="bl-tag" style="background:#fee2e2;color:#991b1b">ditolak</span>'}
+      <div style="font-size:12px;color:#666">${esc(s.tanggal)} · ${esc(s.oleh || '-')} · ${(s.items || []).length} barang${s.status === 'disetujui' && own ? ` · ${dip.length} disesuaikan · selisih <b style="color:${(s.selisih_rp || 0) < 0 ? '#b91c1c' : '#166534'}">${(s.selisih_rp || 0) < 0 ? '−' : '+'}${rpS(Math.abs(s.selisih_rp || 0))}</b>` : ''}${s.alasan_tolak ? ' · alasan: ' + esc(s.alasan_tolak) : ''}${s.disetujui_oleh ? ' · oleh ' + esc(s.disetujui_oleh) : ''}</div></div>
+      <div style="display:flex;gap:6px">${s.status === 'ditolak' ? `<button class="btn btn-primary btn-sm" onclick="hitungUlangOp(${i})">🔁 Hitung ulang</button>` : ''}${s.status === 'disetujui' && own && dip.length ? `<button class="btn btn-secondary btn-sm" onclick="csvOlseraOp(${i})">⬇️ CSV untuk Olsera</button>` : ''}</div></div></div>` }).join('')
+    : '<p style="font-size:13px;color:#999">Belum ada riwayat.</p>'
+}
+window.csvOlseraOp = i => { const s = _opSesi[i]; if (!s) return
+  const q = v => `"${String(v ?? '').replace(/"/g, '""')}"`, rows = [['SKU', 'Nama', 'Lokasi', 'Stok sistem saat hitung', 'Hasil hitung', 'Selisih', 'Stok baru']]
+  s.items.filter(x => x.dipakai).forEach(x => rows.push([x.sku, x.nama, s.lokasi, x.sistem, x.hitung, x.hitung - x.sistem, x.stok_baru ?? x.hitung]))
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + rows.map(r => r.map(q).join(',')).join('\n')], { type: 'text/csv' })); a.download = `opname_${s.lokasi}_${s.tanggal}${s.area ? '_' + s.area.replace(/\W+/g, '_') : ''}.csv`; a.click() }
+function barangLamaOp(lok, hari) { const batas = tambahHari(hariIni(), -hari)
+  return stokAllData.filter(p => diLokasi(p, lok) && (!p['opname_' + lok] || p['opname_' + lok] < batas)).sort((a, b) => (!!a['opname_' + lok]) - (!!b['opname_' + lok]) || stokLok(b, lok) * modalP(b) - stokLok(a, lok) * modalP(a)) }
+window.renderLamaOp = () => {
+  const box = document.getElementById('op-lama'); if (!box) return
+  const lok = document.getElementById('op-lama-lok').value, hari = +document.getElementById('op-hari').value, list = barangLamaOp(lok, hari), own = isOwnerSM()
+  const nilai = list.reduce((t, p) => t + Math.max(0, stokLok(p, lok)) * modalP(p), 0), tot = stokAllData.filter(p => diLokasi(p, lok)).length
+  box.innerHTML = `<p style="font-size:13px;margin-bottom:8px"><b>${num(list.length)}</b> dari ${num(tot)} barang ${lok} belum dihitung &gt;${hari} hari${own ? ` · nilai stok ±<b>${rpS(nilai)}</b>` : ''}. Paling atas = belum pernah dihitung & nilai stok terbesar.</p>`
+    + list.slice(0, 50).map(p => `<div class="op-baris" style="grid-template-columns:minmax(0,1fr) auto"><div style="min-width:0"><b>${esc(namaProduk(p))}</b><div style="font-size:11px;color:#666">${esc(p.sku || p.id)} · ${p['opname_' + lok] ? 'terakhir ' + esc(p['opname_' + lok]) : '<span style="color:#b91c1c">belum pernah</span>'}${own ? ' · stok ' + num(stokLok(p, lok)) : ''}</div></div>
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('op-lokasi').value='${lok}';ubahDrafOp();tambahOp('${jsStr(p.id)}');scrollTo({top:0,behavior:'smooth'})">+ Hitung</button></div>`).join('')
+    + (list.length > 50 ? `<p style="font-size:12px;color:#666;margin-top:6px">… dan ${num(list.length - 50)} lagi.</p>` : '')
+}
+function renderRingkasOp() {
+  const box = document.getElementById('op-ringkas'); if (!box) return
+  const tunggu = _opSesi.filter(s => s.status === 'menunggu').length, own = isOwnerSM(), batas = tambahHari(hariIni(), -30)
+  const lt = barangLamaOp('toko', 30).length, lg = barangLamaOp('gudang', 30).length
+  const sel30 = _opSesi.filter(s => s.status === 'disetujui' && s.tanggal >= batas).reduce((t, s) => t + (s.selisih_rp || 0), 0)
+  const kartu = (ikon, judul, val, sub, bg, fg) => `<div class="ringkas-kartu" style="background:${bg};color:${fg};cursor:default"><div class="rk-ikon">${ikon} ${judul}</div><div class="rk-val">${val}</div><div class="rk-sub">${sub}</div></div>`
+  box.innerHTML = `<div class="ringkas-grid" style="margin-bottom:14px">${kartu('✅', 'Menunggu persetujuan', num(tunggu), own ? 'periksa di bawah' : 'menunggu Owner', '#eff6ff', '#1e40af')}
+    ${kartu('🏪', 'Toko >30 hari', num(lt) + ' barang', 'belum dihitung', '#fff7ed', '#9a3412')}${kartu('🏬', 'Gudang >30 hari', num(lg) + ' barang', 'belum dihitung', '#fff7ed', '#9a3412')}
+    ${own ? kartu('⚖️', 'Selisih 30 hari', (sel30 < 0 ? '−' : '+') + rpS(Math.abs(sel30)), 'nilai modal, opname disetujui', sel30 < 0 ? '#fef2f2' : '#ecfdf5', sel30 < 0 ? '#991b1b' : '#166534') : ''}</div>`
+}

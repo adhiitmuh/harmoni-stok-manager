@@ -12,6 +12,7 @@ Aturan kerja lintas app: lihat `harmoni-indonesia/CLAUDE.md`. Naikkan `?v=` di l
 - `cocok_nota/{kunci nama}` — {nama, sku|null, status:'cocok'|'otomatis'|'abaikan'} jawaban konfirmasi nama nota ↔ produk (tidak ditanya lagi)
 - `kualitas/{SKU__SUP}` — {sku, supplier, nilai 1–5, catatan}
 - `musim/{id}` — {nama, mulai:'MM-DD', selesai:'MM-DD', faktor, ingat (minggu), kata:'A, B', sku[], catatan} berulang tiap tahun; sejak `ingat` minggu sebelum mulai s/d selesai, laku barang cocok (sku/kata di nama+kategori) = max(laku, laku bulan biasa × faktor) di Daftar Belanja + kartu pengingat Dashboard. "Cari dari data penjualan" = barang yang terjual ≥1,5× di bulan musim (riwayat `penjualan_operator`, label bulan 'Nov-26').
+- `opname` — {tanggal, lokasi, area, oleh, status:'menunggu'|'disetujui'|'ditolak', catatan, items:[{id, sku, nama, sistem, hitung, modal, dipakai, stok_baru}], selisih_rp, alasan_tolak}. Hitung buta (staff tidak melihat stok sistem); Owner (`window._harmoniIsOwner`, UI saja — rules harmoni-stok terbuka) menyetujui: stok baru = hitung + (stok kini − sistem saat hitung), set `products.opname_toko/gudang` = tanggal, sinkron stok_fisik; CSV untuk disesuaikan di Olsera. Draf hitung di localStorage `op_draf`.
 - `po` — {supplier, tanggal, lama, perkiraan_datang, status:'dipesan'|'datang'|'batal', items:[{sku, nama, nama_sup, qty, harga}], total, terima[], nota_id}
 
 ## Sinkron dengan Analitik (project harmoni-indonesia `settings/*`)
@@ -24,7 +25,5 @@ Dashboard (ringkasan keputusan: penjualan hilang, toko kosong gudang ada, modal 
 Input Nota/Harga (jenis, tempel daftar harga, pilih produk) · Isi HPP · Upload Olsera · Update Stok (filter kondisi, supplier per barang, set massal) ·
 Supplier (lama kirim, usulan dari nota, rata-rata kualitas) · Banding Harga (antrean konfirmasi, harga per supplier, kualitas, jadikan utama) ·
 Belanja (budget → prioritas kosong&laku lalu untung/Rp modal; butuh = laku×lama stok + laku selama kirim − stok − sudah di-PO, atau Final Order; supplier rekomendasi/utama/tercepat; PO per supplier via link WA + cetak; Barang datang → nota + stok + modal) · Rekonsiliasi.
-Kalender musim ada di halaman Belanja. Menu bawah HP bisa digeser (9 menu).
+Opname (hitung, scan +1, setujui/tolak, lama belum dihitung). Kalender musim ada di halaman Belanja. Menu bawah HP bisa digeser (10 menu).
 
-## Rencana berikutnya
-6 opname (staff hitung, Owner setujui).

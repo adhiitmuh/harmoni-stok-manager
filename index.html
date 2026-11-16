@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <meta name="theme-color" content="#034543">
   <title>Harmoni Stok Manager</title>
-  <link rel="stylesheet" href="css/style.css?v=20261115a">
+  <link rel="stylesheet" href="css/style.css?v=20261116a">
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
@@ -65,6 +65,9 @@
     </button>
     <button class="nav-item" data-page="belanja">
       <span class="icon">🛒</span> Belanja
+    </button>
+    <button class="nav-item" data-page="opname">
+      <span class="icon">🧮</span> Opname
     </button>
     <button class="nav-item" data-page="rekonsiliasi">
       <span class="icon">🔄</span> Rekonsiliasi Stok
@@ -506,6 +509,42 @@
     </div>
   </div>
 
+  <!-- OPNAME -->
+  <div id="opname" class="page">
+    <h1 class="page-title">Opname Stok</h1>
+    <p class="page-subtitle">Staff menghitung fisik per rak → Owner menyetujui selisih → stok diperbarui & dicatat. Barang yang lama tidak dihitung ditandai.</p>
+    <div id="op-ringkas"></div>
+    <div class="card">
+      <div class="card-title">🧮 Hitung stok</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px">
+        <div class="form-group" style="margin:0"><label>Lokasi</label><select id="op-lokasi" onchange="ubahDrafOp()"><option value="toko">Toko</option><option value="gudang">Gudang</option></select></div>
+        <div class="form-group" style="margin:0"><label>Rak / area</label><input id="op-area" list="dl-area" placeholder="cth: Rak A, Etalase depan" oninput="ubahDrafOp()"></div>
+      </div>
+      <datalist id="dl-area"></datalist>
+      <div style="position:relative;margin-top:10px">
+        <input type="search" id="op-cari" placeholder="🔍 Ketik nama / SKU, atau scan barcode lalu Enter" autocomplete="off" oninput="cariOp()" onkeydown="if(event.key==='Enter'){event.preventDefault();enterOp()}" style="width:100%;padding:10px 12px;border:1.5px solid #e5e5e5;border-radius:10px;font-size:14px">
+        <div id="op-hasil"></div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
+        <label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="op-scan"> Mode scan: tiap scan +1</label>
+        <select id="op-kat" style="padding:6px 8px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:13px;max-width:100%"><option value="">+ Tambah satu kategori…</option></select>
+        <button class="btn btn-secondary btn-sm" onclick="tambahKategoriOp()">Tambah</button>
+        <button class="btn btn-secondary btn-sm" onclick="tambahLamaOp(20)">+ 20 barang terlama belum dihitung</button>
+      </div>
+      <p style="font-size:12px;color:#666;margin:8px 0">Hitung fisik apa adanya. Stok sistem sengaja tidak ditampilkan supaya hitungan jujur. Hitungan tersimpan otomatis di HP ini sampai dikirim.</p>
+      <div id="op-daftar"></div>
+      <div class="form-group" style="margin:10px 0 0"><label>Catatan</label><input id="op-cat" placeholder="opsional — cth: ada 3 pcs rusak di rak bawah" oninput="ubahDrafOp()"></div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn btn-primary" id="op-kirim" onclick="kirimOpname()">📤 Kirim untuk disetujui</button><button class="btn btn-secondary" onclick="kosongkanOp()">Kosongkan</button></div>
+    </div>
+    <div class="card"><div class="card-title">✅ Menunggu persetujuan</div><div id="op-tunggu"></div></div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center"><div class="card-title" style="margin:0">⏰ Lama belum dihitung</div>
+        <div style="display:flex;gap:6px;align-items:center;font-size:12px">lebih dari <select id="op-hari" onchange="renderLamaOp()" style="padding:4px 6px;border:1.5px solid #e5e5e5;border-radius:8px"><option>30</option><option>60</option><option>90</option></select> hari · <select id="op-lama-lok" onchange="renderLamaOp()" style="padding:4px 6px;border:1.5px solid #e5e5e5;border-radius:8px"><option value="toko">Toko</option><option value="gudang">Gudang</option></select></div></div>
+      <div id="op-lama" style="margin-top:10px"></div>
+    </div>
+    <div class="card"><div class="card-title">🕘 Riwayat opname</div><div id="op-riwayat"></div></div>
+  </div>
+
   <div id="rekonsiliasi" class="page">
     <h1 class="page-title">Rekonsiliasi Stok</h1>
     <p class="page-subtitle">Perbandingan data antara gudang dan toko</p>
@@ -616,6 +655,7 @@ _app.auth().onAuthStateChanged(async user => {
     const footer = document.querySelector('.sidebar-footer');
     if (footer) footer.textContent = (data.nama || user.email) + ' · harmoni © 2026';
     window._harmoniUserName = data.nama || user.email;
+    window._harmoniIsOwner = isOwner; document.dispatchEvent(new Event('harmoni-login'));
   } catch(e) {
     elLoading.style.display = 'none';
     elDenied.style.display  = 'block';

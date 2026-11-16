@@ -322,3 +322,13 @@ td input[type="number"]:focus { outline: none; border-color: var(--green-mid); b
 .po-kartu input, .po-kartu select { padding: 5px 8px; border: 1.5px solid #e5e5e5; border-radius: 8px; font-size: 13px; }
 @media (max-width: 700px) { .bl-item { padding: 10px; } .bl-item .bl-atur input { width: 64px; } .bl-item .bl-atur select { font-size: 16px; } }
 @media (max-width: 700px) { .sidebar-nav { overflow-x: auto; scrollbar-width: none; } .sidebar-nav::-webkit-scrollbar { display: none; } .nav-item { flex: 1 0 50px; } }
+
+/* Opname */
+#op-hasil { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; background: #fff; border: 1.5px solid #e5e5e5; border-radius: 10px; box-shadow: 0 8px 20px rgba(0,0,0,.12); max-height: 320px; overflow: auto; display: none; }
+#op-hasil button { display: flex; justify-content: space-between; gap: 8px; width: 100%; text-align: left; padding: 9px 12px; border: 0; border-bottom: 1px solid #f1f5f9; background: #fff; cursor: pointer; font-family: inherit; font-size: 13px; }
+#op-hasil button:hover { background: #ecfdf5; }
+.op-baris { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+.op-baris input { width: 84px; padding: 8px 10px; border: 1.5px solid #e5e5e5; border-radius: 8px; font-size: 16px; text-align: right; }
+.op-baris input:placeholder-shown { border-color: #fbbf24; background: #fffbeb; }
+.op-baris.baru { animation: opKilat .8s; }
+@keyframes opKilat { from { background: #dcfce7; } to { background: transparent; } }
