@@ -130,6 +130,7 @@ async function renderRingkasan(products) {
     + kartu('mati', '🧊', 'Modal tertahan', rp(tertahan), `${num(mati.length)} barang tidak laku 6 bulan`, '#f1f5f9', '#334155')
     + kartu('modal_naik', '📈', 'Modal naik', num(naik.length) + ' barang', 'modal di Olsera naik >10% — cek harga jual', '#fff7ed', '#9a3412')
     + kartu('margin', '⚠️', 'Margin tipis / rugi', num(margin.length) + ' barang', 'harga jual < modal + 15%', '#fefce8', '#854d0e')
+  muatMusim(true).then(ms => ms.map(m => ({ m, st: statusMusim(m) })).filter(x => x.st.aktif).forEach(({ m, st }) => box.insertAdjacentHTML('afterbegin', `<button class="ringkas-kartu" style="background:#fffbeb;color:#92400e;border-color:#fcd34d" onclick="keBelanja()"><div class="rk-ikon">📅 ${esc(m.nama)}</div><div class="rk-val" style="font-size:15px">${st.tahap === 'jalan' ? 'Sedang musim' : st.hari >= 14 ? Math.round(st.hari / 7) + ' minggu lagi' : st.hari + ' hari lagi'}</div><div class="rk-sub">${tglPendek(st.s)} – ${tglPendek(st.e)} · siapkan stok (laku ×${m.faktor})</div></button>`))).catch(() => {})
   getDocs(collection(db, 'po')).then(sn => { const now = hariIni(), a = sn.docs.map(d => d.data()).filter(p => p.status === 'dipesan'); if (!a.length) return
     const tl = a.filter(p => p.perkiraan_datang && p.perkiraan_datang < now).length
     box.insertAdjacentHTML('beforeend', `<button class="ringkas-kartu" style="background:${tl ? '#fef2f2' : '#ecfdf5'};color:${tl ? '#991b1b' : '#166534'}" onclick="keBelanja()"><div class="rk-ikon">📦 PO berjalan</div><div class="rk-val">${num(a.length)} PO</div><div class="rk-sub">${tl ? tl + ' terlambat datang' : 'menunggu barang datang'}</div></button>`) }).catch(() => {})
@@ -874,7 +875,9 @@ async function loadStok() {
 }
 
 // Penjualan per SKU dari Analitik Penjualan (ringkasan bulanan, project harmoni-indonesia) → "laku" = rata-rata 3 bulan terakhir
-let lakuPerSku = null, laku6PerSku = {}, lakuInfo = '';
+let lakuPerSku = null, laku6PerSku = {}, lakuInfo = '', _riwayat = { bulan: [], q: {} };
+const NO_BLN = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, Mei: 5, Jun: 6, Jul: 7, Agt: 8, Agu: 8, Ags: 8, Aug: 8, Sep: 9, Okt: 10, Oct: 10, Nov: 11, Des: 12, Dec: 12 }
+const parseBulan = t => { const m = String(t).match(/^([A-Za-z]+)[-\s]?(\d{2,4})$/); return m ? [(+m[2] < 100 ? 2000 + +m[2] : +m[2]), NO_BLN[m[1].slice(0, 1).toUpperCase() + m[1].slice(1, 3).toLowerCase()] || 0] : [0, 0] }
 async function muatLaku() {
   if (lakuPerSku) return lakuPerSku;
   const app = window._harmoniAuthApp; lakuPerSku = {};
@@ -885,6 +888,7 @@ async function muatLaku() {
     const n = meta.data().n || 1, parts = await Promise.all(Array.from({ length: n }, (_, i) => col.doc('part_' + i).get()))
     const r = JSON.parse(parts.sort((a, b) => (a.data()?.i || 0) - (b.data()?.i || 0)).map(d => d.data()?.data || '').join(''))
     const N = (r.bulan || []).length, ambil = Math.min(3, N)
+    _riwayat = { bulan: (r.bulan || []).map(parseBulan), q: Object.fromEntries((r.sku || []).map(x => [String(x.s).toUpperCase(), x.q || []])) }
     ;(r.sku || []).forEach(x => { const q = x.q || [], K = String(x.s).toUpperCase(), tot = q.slice(N - ambil).reduce((t, v) => t + (+v || 0), 0); lakuPerSku[K] = ambil ? +(tot / ambil).toFixed(1) : 0; laku6PerSku[K] = q.slice(Math.max(0, N - 6)).reduce((t, v) => t + (+v || 0), 0) })
     lakuInfo = `Laku/bln = rata-rata ${ambil} bulan terakhir (${(r.bulan || []).slice(N - ambil).join(', ')}) dari Analitik Penjualan.`
   } catch (e) {
@@ -1085,7 +1089,7 @@ window.keBelanja = keBelanja
 async function loadBelanja() {
   const b = lsGet('bl_budget', ''); if (b && !document.getElementById('bl-budget').value) document.getElementById('bl-budget').value = (+b).toLocaleString('id-ID')
   const o = lsGet('bl_opsi', null); if (o && !_bl) { document.getElementById('bl-bulan').value = o.bulan || '1'; document.getElementById('bl-mode').value = o.mode || 'rek'; document.getElementById('bl-final').checked = o.final !== false }
-  await loadPO(); await hitungBelanja()
+  await Promise.all([loadPO(), muatMusim()]); await hitungBelanja(); renderMusim()
 }
 window.formatBudget = el => { const v = el.value.replace(/\D/g, ''); el.value = v ? (+v).toLocaleString('id-ID') : ''; lsSet('bl_budget', v)
   clearTimeout(window._blT); window._blT = setTimeout(() => { if (_bl) aturBudget() }, 350) }
@@ -1096,7 +1100,7 @@ window.hitungBelanja = async () => {
   const bulan = +document.getElementById('bl-bulan').value || 1, mode = document.getElementById('bl-mode').value, pakaiFinal = document.getElementById('bl-final').checked
   lsSet('bl_opsi', { bulan: String(bulan), mode, final: pakaiFinal })
   try {
-    const [, , , fo] = await Promise.all([muatSupplier(), muatLaku(), _bh ? null : hitungBandingHarga(), pakaiFinal ? muatFinalOrder() : {}])
+    const [, , , fo] = await Promise.all([muatSupplier(), muatLaku(), _bh ? null : hitungBandingHarga(), pakaiFinal ? muatFinalOrder() : {}, muatMusim()])
     const lamaSup = n => +(supplierList.find(x => x.nama === n)?.lama) || 0
     const foU = {}; Object.entries(fo || {}).forEach(([k, v]) => { if (+v > 0) foU[k.toUpperCase()] = +v })
     // Barang yang sudah dipesan (PO belum datang) tidak diusulkan lagi
@@ -1104,7 +1108,7 @@ window.hitungBelanja = async () => {
     const items = []
     _bh.produk.forEach(p => {
       const K = String(p.sku || p.id).toUpperCase(), L = lakuSku(p), F = foU[K] || 0
-      if (!(L > 0) && !(F > 0)) return
+      if (!(L > 0) && !(F > 0) && !faktorMusim(p)) return
       const opsi = Object.entries(_bh.harga[K] || {}).map(([n, e]) => ({ n, harga: +e.harga || 0, nama: e.nama || '', jenis: e.jenis || 'nota', lama: lamaSup(n), kual: +(_bh.kual[K + '|' + n]?.nilai) || 0 }))
       if (p.supplier && !opsi.some(o => o.n === p.supplier)) opsi.push({ n: p.supplier, harga: modalP(p), nama: '', jenis: 'modal', lama: lamaSup(p.supplier), kual: +(_bh.kual[K + '|' + p.supplier]?.nilai) || 0 })
       opsi.sort((a, b) => (a.harga || 9e15) - (b.harga || 9e15))
@@ -1127,14 +1131,15 @@ function aturBudget() {
   const B = budgetBl()
   const rows = _bl.items.map(it => {
     const s = pilihSupBl(it), lama = s?.lama || 0, beli = (s?.harga > 0 ? s.harga : modalP(it.p)) || 0, jual = hargaP(it.p), ub = _bl.ubah[it.K] || {}
-    const target = Math.ceil(it.L * _bl.bulan + it.L / 30 * lama)
+    const mu = faktorMusim(it.p), lb = mu ? lakuBiasa(it.K, mu.m) : null, Lm = mu ? Math.max(it.L, (lb ?? it.L) * mu.f) : it.L   // musim: laku bulan biasa × faktor sejak masa pengingat
+    const target = Math.ceil(Lm * _bl.bulan + Lm / 30 * lama)
     const usul = Math.max(0, (it.F > 0 ? it.F : target - it.stok) - it.dipesan)
     const qty = ub.qty != null ? ub.qty : usul
     const kondisi = it.stok <= 0 ? 'kosong' : it.stok < it.L / 30 * Math.max(lama, 7) ? 'kritis' : 'isi'
     const untung = jual > 0 && beli > 0 ? jual - beli : 0
     const roi = beli > 0 && qty > 0 ? untung * Math.min(qty, Math.max(it.L, 1) * _bl.bulan) / (beli * qty) : 0   // untung per Rp modal
     const tier = untung <= 0 ? 0 : kondisi === 'kosong' ? 3 : kondisi === 'kritis' ? 2 : 1
-    return { ...it, s, lama, beli, jual, untung, usul, qty, manual: ub.qty != null, keluar: !!ub.keluar, kondisi, roi, tier, ambil: 0, status: '' }
+    return { ...it, s, lama, beli, jual, untung, usul, qty, manual: ub.qty != null, keluar: !!ub.keluar, kondisi, roi, tier: tier + (mu && tier ? 0.5 : 0), mu, ambil: 0, status: '' }
   }).filter(r => r.qty > 0 || r.manual)
   const urut = rows.filter(r => !r.keluar && r.qty > 0).sort((a, b) => b.tier - a.tier || b.roi - a.roi || b.L - a.L)
   let sisa = B > 0 ? B : Infinity
@@ -1152,6 +1157,7 @@ function rowBelanja(r) {
   const K = jsStr(r.K)
   const tag = (r.rank ? `<span class="bl-tag" style="background:#f1f5f9;color:#334155">#${r.rank}</span>` : '')
     + (r.kondisi === 'kosong' ? '<span class="bl-tag" style="background:#fee2e2;color:#991b1b">kosong</span>' : r.kondisi === 'kritis' ? '<span class="bl-tag" style="background:#fef3c7;color:#92400e">habis sebelum kiriman datang</span>' : '')
+    + (r.mu ? `<span class="bl-tag" style="background:#fef3c7;color:#92400e">📅 ${esc(r.mu.nama)} ×${r.mu.f}</span>` : '')
     + (r.F > 0 && _bl.final ? '<span class="bl-tag" style="background:#e0e7ff;color:#3730a3">Final Order</span>' : '')
     + (r.untung <= 0 && r.beli > 0 && r.jual > 0 ? '<span class="bl-tag" style="background:#fee2e2;color:#991b1b">tidak untung</span>' : '')
   const opsi = r.opsi.length ? r.opsi.map(o => `<option value="${esc(o.n)}"${o.n === r.s?.n ? ' selected' : ''}>${o.n === r.p.supplier ? '⭐ ' : ''}${esc(o.n)} · ${o.harga ? rpS(o.harga) : 'harga ?'}${o.lama ? ' · ' + o.lama + ' hr' : ''}${o.kual ? ' · ' + '★'.repeat(o.kual) : ''}${o.jenis === 'penawaran' ? ' · penawaran' : o.jenis === 'catatan' ? ' · catatan' : ''}</option>`).join('')
@@ -1181,6 +1187,7 @@ function renderBelanja(B, sisa) {
     ${kartu('💵', 'Sisa budget', B > 0 ? rpS(sisa) : '—', B > 0 ? 'dari ' + rpS(B) : 'budget belum diisi (tanpa batas)', '#eff6ff', '#1e40af')}
     ${kartu('📈', 'Perkiraan untung', rpS(untungBln), `dari barang ini, ${_bl.bulan < 1 ? '2 minggu' : _bl.bulan + ' bulan'} ke depan`, '#fefce8', '#854d0e')}
     ${kartu('⏳', 'Belum kebeli', rpS(kurang), `${num(luar.length)} barang tidak masuk budget`, '#fef2f2', '#991b1b')}</div>
+    ${(_musim || []).map(m => ({ m, st: statusMusim(m) })).filter(x => x.st.aktif).map(x => `<p style="font-size:12.5px;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;border-radius:10px;padding:8px 12px;margin:-4px 0 12px">📅 <b>${esc(x.m.nama)}</b> — ${x.st.label}. Laku ${rows.filter(r => r.mu?.nama === x.m.nama).length} barang terkait dihitung ×${x.m.faktor}.</p>`).join('')}
     ${!lakuPerSku || !Object.keys(lakuPerSku).length ? `<p style="font-size:12px;color:#b91c1c;margin:-6px 0 12px">${esc(lakuInfo || 'Data penjualan belum ada.')}</p>` : ''}`
   const grupHTML = (x, i) => { const sup = supplierList.find(s => s.nama === x.n)
     return `<div class="bl-sup"><div class="bl-sup-kepala"><div><b style="font-size:14px">${x.n ? '🏭 ' + esc(x.n) : '❓ Belum ada supplier'}</b>
@@ -1303,3 +1310,97 @@ window.terimaPO = async i => {
     await loadPO(); if (_bl) await hitungBelanja()
   } catch (e) { toast('Gagal: ' + e.message, 'error'); btn.disabled = false; btn.textContent = '💾 Simpan — jadi nota' }
 }
+
+// ── KALENDER MUSIM ─────────────────────────────────────────────────────────
+// musim/{id} = { nama, mulai:'MM-DD', selesai:'MM-DD', faktor (× laku normal), ingat (minggu sebelum mulai), kata:'PASKIBRA, PDU', sku:[...], catatan }
+// Berulang tiap tahun. Mulai `ingat` minggu sebelum musim sampai musim selesai, laku barang terkait × faktor di Daftar Belanja.
+let _musim = null
+const NAMA_BLN_ID = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+const tglPendek = t => { const [, m, d] = t.split('-'); return `${+d} ${NAMA_BLN_ID[+m]}` }
+async function muatMusim(paksa) {
+  if (_musim && !paksa) return _musim
+  try { _musim = (await getDocs(collection(db, 'musim'))).docs.map(d => ({ id: d.id, ...d.data() })) } catch (e) { console.warn('musim', e); _musim = [] }
+  return _musim
+}
+// Kejadian musim yang sedang/akan datang (berulang tiap tahun, boleh lewat tahun baru)
+function kejadianMusim(m, hari = hariIni()) {
+  const Y = +hari.slice(0, 4)
+  for (const y of [Y - 1, Y, Y + 1]) { const s = `${y}-${m.mulai}`; let e = `${y}-${m.selesai}`; if (e < s) e = `${y + 1}-${m.selesai}`; if (e >= hari) return { s, e, ingatDari: tambahHari(s, -7 * (+m.ingat || 8)) } }
+  return null
+}
+function statusMusim(m, hari = hariIni()) {
+  const k = kejadianMusim(m, hari); if (!k) return { aktif: false, label: '' }
+  if (hari >= k.s) return { ...k, aktif: true, tahap: 'jalan', label: `🔥 sedang musim (sampai ${tglPendek(k.e)})` }
+  const n = selisihHari(hari, k.s)
+  if (hari >= k.ingatDari) return { ...k, aktif: true, tahap: 'siap', hari: n, label: `⏰ ${n >= 14 ? Math.round(n / 7) + ' minggu' : n + ' hari'} lagi — siapkan stok` }
+  return { ...k, aktif: false, tahap: 'nanti', hari: n, label: `berikutnya ${tglPendek(k.s)} (${Math.round(n / 7)} minggu lagi)` }
+}
+const setBulanMusim = (mulai, selesai) => { const b1 = +mulai.slice(0, 2), b2 = +selesai.slice(0, 2), set = new Set(); for (let b = b1, i = 0; i < 12; i++) { set.add(b); if (b === b2) break; b = b % 12 + 1 } return set }
+// Laku bulan biasa = rata-rata 3 bulan terakhir di luar bulan musim (supaya saat musim berjalan tidak dikali dua kali)
+function lakuBiasa(K, m) { const q = _riwayat.q[K]; if (!q) return null; const set = setBulanMusim(m.mulai, m.selesai), idx = _riwayat.bulan.map((x, i) => x[1] && !set.has(x[1]) ? i : -1).filter(i => i >= 0).slice(-3)
+  return idx.length ? idx.reduce((t, i) => t + (+q[i] || 0), 0) / idx.length : null }
+const kataMusim = m => String(m.kata || '').toUpperCase().split(',').map(t => t.trim()).filter(Boolean)
+const cocokMusim = (m, p) => { const K = String(p.sku || p.id).toUpperCase(); if ((m.sku || []).map(x => String(x).toUpperCase()).includes(K)) return true
+  const t = (namaProduk(p) + ' ' + (p.category || '')).toUpperCase(); return kataMusim(m).some(w => t.includes(w)) }
+// Faktor musim tertinggi yang berlaku untuk barang ini sekarang
+function faktorMusim(p) { let best = null; (_musim || []).forEach(m => { const st = statusMusim(m); if (st.aktif && +m.faktor > 1 && cocokMusim(m, p) && (!best || +m.faktor > best.f)) best = { f: +m.faktor, nama: m.nama, st, m } }); return best }
+
+const TEMPLATE_MUSIM = {
+  ajaran: { nama: 'Tahun ajaran baru', mulai: '06-20', selesai: '07-31', faktor: 2, ingat: 8, kata: 'SEKOLAH, SERAGAM, SD, SMP, SMA, DASI, TOPI', catatan: 'Seragam & atribut sekolah' },
+  paskibra: { nama: '17 Agustus / Paskibra', mulai: '07-15', selesai: '08-20', faktor: 2, ingat: 8, kata: 'PASKIBRA, PDU, MERAH PUTIH', catatan: 'Atribut Paskibra & upacara' },
+}
+window.isiTemplateMusim = k => { const t = TEMPLATE_MUSIM[k]; resetFormMusim(); Object.entries({ nama: t.nama, mulai: t.mulai, selesai: t.selesai, faktor: t.faktor, ingat: t.ingat, kata: t.kata, cat: t.catatan }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)
+  toast('Template diisi — sesuaikan tanggal & kata kunci, lalu simpan'); document.getElementById('ms-form').open = true }
+window.resetFormMusim = () => { ['nama', 'mulai', 'selesai', 'kata', 'cat'].forEach(f => document.getElementById('ms-' + f).value = ''); document.getElementById('ms-faktor').value = 2; document.getElementById('ms-ingat').value = 8
+  document.getElementById('ms-id').value = ''; document.getElementById('ms-usul').innerHTML = ''; window._msSku = [] }
+window.ubahMusim = id => { const m = _musim.find(x => x.id === id); if (!m) return; resetFormMusim()
+  Object.entries({ nama: m.nama, mulai: m.mulai, selesai: m.selesai, faktor: m.faktor, ingat: m.ingat, kata: m.kata || '', cat: m.catatan || '' }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)
+  document.getElementById('ms-id').value = id; window._msSku = [...(m.sku || [])]; renderSkuMusim(); const f = document.getElementById('ms-form'); f.open = true; f.scrollIntoView({ behavior: 'smooth' }) }
+const mmdd = v => { const m = String(v || '').trim().match(/^(\d{1,2})[-\/](\d{1,2})$/); if (!m) return ''; const b = +m[1], d = +m[2]; return b >= 1 && b <= 12 && d >= 1 && d <= 31 ? `${String(b).padStart(2, '0')}-${String(d).padStart(2, '0')}` : '' }
+window.simpanMusim = async () => {
+  const v = f => document.getElementById('ms-' + f).value.trim(), nama = v('nama'), mulai = mmdd(v('mulai')), selesai = mmdd(v('selesai'))
+  if (!nama) return toast('Nama musim wajib diisi', 'error'); if (!mulai || !selesai) return toast('Isi tanggal mulai & selesai dengan format BB-TT, cth 07-15', 'error')
+  const faktor = Math.max(1, +v('faktor') || 1), ingat = Math.max(1, parseInt(v('ingat')) || 8), sku = window._msSku || []
+  if (!v('kata') && !sku.length) return toast('Isi kata kunci barang, atau pilih barang dari "Cari dari data penjualan"', 'error')
+  const id = v('id') || idSup(nama)
+  try { await setDoc(doc(db, 'musim', id), { nama, mulai, selesai, faktor, ingat, kata: v('kata'), sku, catatan: v('cat'), oleh: window._harmoniUserName || '', updated_at: serverTimestamp() })
+    toast(`✅ Musim "${nama}" disimpan`); resetFormMusim(); document.getElementById('ms-form').open = false; await muatMusim(true); renderMusim(); if (_bl) aturBudget() } catch (e) { toast('Gagal: ' + e.message, 'error') }
+}
+window.hapusMusim = async id => { const m = _musim.find(x => x.id === id); if (!m || !confirm(`Hapus musim "${m.nama}"?`)) return
+  try { await deleteDoc(doc(db, 'musim', id)); await muatMusim(true); renderMusim(); if (_bl) aturBudget(); toast('Musim dihapus') } catch (e) { toast('Gagal: ' + e.message, 'error') } }
+function renderMusim() {
+  const box = document.getElementById('ms-list'); if (!box) return
+  const prod = _bh?.produk || stokAllData || []
+  const list = (_musim || []).map(m => ({ m, st: statusMusim(m) })).sort((a, b) => (a.st.s || '9').localeCompare(b.st.s || '9'))
+  document.getElementById('ms-n').textContent = list.filter(x => x.st.aktif).length ? `· ${list.filter(x => x.st.aktif).length} sedang berlaku` : ''
+  box.innerHTML = list.length ? list.map(({ m, st }) => { const n = prod.length ? prod.filter(p => cocokMusim(m, p)).length : null
+    return `<div class="po-kartu" style="${st.aktif ? 'border-color:#fcd34d;background:#fffbeb' : ''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <div><b>📅 ${esc(m.nama)}</b> <span style="font-size:12px;color:#666">${tglPendek('2000-' + m.mulai)} – ${tglPendek('2000-' + m.selesai)} · laku ×${m.faktor} · diingatkan ${m.ingat || 8} minggu sebelumnya</span>
+        <div style="font-size:12px;font-weight:700;color:${st.aktif ? '#92400e' : '#475569'};margin-top:2px">${st.label}</div>
+        <div style="font-size:11px;color:#666;margin-top:2px">${m.kata ? 'Kata kunci: ' + esc(m.kata) : ''}${m.sku?.length ? `${m.kata ? ' · ' : ''}${m.sku.length} barang dipilih` : ''}${n != null ? ` · <b>${n} barang cocok</b>` : ''}${m.catatan ? ' · ' + esc(m.catatan) : ''}</div></div>
+      <div style="display:flex;gap:6px;align-items:start"><button class="btn btn-secondary btn-sm" onclick="ubahMusim('${jsStr(m.id)}')">✏️ Ubah</button><button class="btn btn-sm" style="background:#f1f5f9;color:#475569" onclick="hapusMusim('${jsStr(m.id)}')">Hapus</button></div></div></div>` }).join('')
+    : '<p style="font-size:13px;color:#666">Belum ada musim. Pakai template di bawah atau tambah sendiri.</p>'
+}
+// Cari barang yang penjualannya naik di bulan-bulan musim (dari riwayat penjualan Analitik)
+window.cariBarangMusim = async () => {
+  const mulai = mmdd(document.getElementById('ms-mulai').value), selesai = mmdd(document.getElementById('ms-selesai').value), box = document.getElementById('ms-usul')
+  if (!mulai || !selesai) return toast('Isi tanggal mulai & selesai dulu', 'error')
+  box.innerHTML = '<div class="loading"><div class="spinner"></div><span>Membaca riwayat penjualan…</span></div>'
+  await muatLaku(); const prod = await produkSemua()
+  const b1 = +mulai.slice(0, 2), b2 = +selesai.slice(0, 2), bulanMusim = setBulanMusim(mulai, selesai)
+  const idxM = _riwayat.bulan.map((x, i) => bulanMusim.has(x[1]) ? i : -1).filter(i => i >= 0), idxL = _riwayat.bulan.map((x, i) => x[1] && !bulanMusim.has(x[1]) ? i : -1).filter(i => i >= 0)
+  if (!idxM.length || idxL.length < 2) { box.innerHTML = `<p style="font-size:12px;color:#b91c1c">Riwayat penjualan belum mencakup bulan ${NAMA_BLN_ID[b1]}–${NAMA_BLN_ID[b2]} (data ada: ${_riwayat.bulan.length} bulan). Upload data penjualan bulan-bulan itu di Analitik, atau isi kata kunci manual.</p>`; return }
+  const bySku = {}; prod.forEach(p => bySku[String(p.sku || p.id).toUpperCase()] = p)
+  const avg = (q, idx) => idx.reduce((t, i) => t + (+q[i] || 0), 0) / idx.length
+  const hasil = Object.entries(_riwayat.q).map(([K, q]) => { const a = avg(q, idxM), b = avg(q, idxL); return { K, p: bySku[K], a, b, r: b > 0 ? a / b : a >= 3 ? 9 : 0 } })
+    .filter(x => x.p && x.a >= 2 && x.r >= 1.5).sort((x, y) => y.a * Math.min(y.r, 9) - x.a * Math.min(x.r, 9)).slice(0, 40)
+  if (!hasil.length) { box.innerHTML = '<p style="font-size:12px;color:#666">Tidak ada barang yang penjualannya naik ≥1,5× di bulan-bulan ini.</p>'; return }
+  const rs = hasil.map(x => Math.min(x.r, 5)).sort((a, b) => a - b), med = rs[Math.floor((rs.length - 1) / 2)]
+  window._msUsul = hasil; window._msSku = window._msSku || []
+  box.innerHTML = `<p style="font-size:12px;color:#666;margin:6px 0">Barang yang di bulan ${NAMA_BLN_ID[b1]}–${NAMA_BLN_ID[b2]} terjual jauh lebih banyak dari bulan lain (${idxM.length} bulan musim vs ${idxL.length} bulan biasa). Rata-rata naik ±${med.toFixed(1)}× → <a href="#" onclick="document.getElementById('ms-faktor').value=${Math.max(1.5, Math.round(med * 2) / 2)};return false">pakai faktor ×${Math.max(1.5, Math.round(med * 2) / 2)}</a></p>
+    <div style="max-height:320px;overflow:auto;border:1px solid #e5e5e5;border-radius:8px">${hasil.map((x, i) => `<label style="display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:12.5px"><input type="checkbox" ${window._msSku.includes(x.K) || !window._msSku.length ? 'checked' : ''} data-k="${esc(x.K)}" onchange="pilihSkuMusim()">
+      <span style="flex:1;min-width:0"><b>${esc(namaProduk(x.p))}</b> <span style="color:#666">${esc(x.K)}</span></span><span style="white-space:nowrap;color:#166534;font-weight:700">${x.a.toFixed(0)}/bln musim · ${x.b ? '×' + x.r.toFixed(1) : 'baru laku'}</span></label>`).join('')}</div>`
+  pilihSkuMusim()
+}
+window.pilihSkuMusim = () => { window._msSku = [...document.querySelectorAll('#ms-usul input[data-k]:checked')].map(i => i.dataset.k); renderSkuMusim(true) }
+function renderSkuMusim(dariUsul) { const el = document.getElementById('ms-sku-n'); if (el) el.textContent = window._msSku?.length ? `${window._msSku.length} barang dipilih` + (dariUsul ? '' : ' (klik "Cari dari data penjualan" untuk mengubah)') : '' }

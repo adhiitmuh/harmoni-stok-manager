@@ -480,6 +480,27 @@
     <div id="bl-ringkas"></div>
     <div id="bl-hasil"></div>
     <div class="card">
+      <div class="card-title">📅 Kalender musim <span id="ms-n" style="font-size:12px;color:#92400e"></span></div>
+      <p style="font-size:12px;color:#666;margin-bottom:10px">Musim berulang tiap tahun. Mulai beberapa minggu sebelum musim, laku barang terkait otomatis dinaikkan di Daftar Belanja (dan muncul pengingat di Dashboard) supaya stok siap sebelum ramai.</p>
+      <div id="ms-list"></div>
+      <details id="ms-form" style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">+ Tambah / ubah musim</summary>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0"><span style="font-size:12px;color:#666;align-self:center">Template:</span><button class="btn btn-secondary btn-sm" onclick="isiTemplateMusim('ajaran')">🎒 Tahun ajaran baru</button><button class="btn btn-secondary btn-sm" onclick="isiTemplateMusim('paskibra')">🇮🇩 17 Agustus / Paskibra</button></div>
+        <input type="hidden" id="ms-id">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">
+          <div class="form-group" style="margin:0;grid-column:span 2;min-width:0"><label>Nama musim *</label><input id="ms-nama" placeholder="cth: Diklat satpam gelombang 1"></div>
+          <div class="form-group" style="margin:0"><label>Mulai (BB-TT) *</label><input id="ms-mulai" placeholder="07-15" inputmode="numeric"></div>
+          <div class="form-group" style="margin:0"><label>Selesai (BB-TT) *</label><input id="ms-selesai" placeholder="08-20" inputmode="numeric"></div>
+          <div class="form-group" style="margin:0"><label>Laku naik (×)</label><input id="ms-faktor" type="number" min="1" step="0.5" value="2"></div>
+          <div class="form-group" style="margin:0"><label>Ingatkan (minggu sebelum)</label><input id="ms-ingat" type="number" min="1" value="8"></div>
+        </div>
+        <div class="form-group" style="margin:10px 0 0"><label>Kata kunci barang <span style="color:#999">(pisah koma — dicari di nama & kategori)</span></label><input id="ms-kata" placeholder="cth: PASKIBRA, PDU, MERAH PUTIH"></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="cariBarangMusim()">🔍 Cari dari data penjualan</button><span id="ms-sku-n" style="font-size:12px;color:#166534;font-weight:700"></span></div>
+        <div id="ms-usul"></div>
+        <div class="form-group" style="margin:10px 0 0"><label>Catatan</label><input id="ms-cat" placeholder="opsional"></div>
+        <div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-primary" onclick="simpanMusim()">💾 Simpan musim</button><button class="btn btn-secondary" onclick="resetFormMusim()">Kosongkan</button></div>
+      </details>
+    </div>
+    <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><div class="card-title" style="margin:0">📦 PO (pesanan ke supplier)</div><label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="po-semua" onchange="renderPO()"> tampilkan yang sudah selesai</label></div>
       <div id="po-list" style="margin-top:10px"></div>
     </div>
