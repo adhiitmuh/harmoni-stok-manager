@@ -129,7 +129,7 @@ async function renderRingkasan(products) {
   box.innerHTML = kartu('kosong_laku', '🔥', 'Penjualan hilang', rp(Math.round(hilang)) + '<span style="font-size:12px;font-weight:600">/bln</span>', `${num(kosong.length)} barang laku sedang kosong`, '#fef2f2', '#991b1b')
     + kartu('pindah', '🚚', 'Toko kosong, gudang ada', num(pindah.length) + ' barang', 'pindahkan dulu sebelum beli', '#eff6ff', '#1e40af')
     + kartu('mati', '🧊', 'Modal tertahan', rp(tertahan), `${num(mati.length)} barang tidak laku 6 bulan`, '#f1f5f9', '#334155')
-    + kartu('modal_naik', '📈', 'Modal naik', num(naik.length) + ' barang', 'modal di Olsera naik >10% — cek harga jual', '#fff7ed', '#9a3412')
+    + kartu('modal_naik', '📈', 'Modal berubah', num(naik.length) + ' barang', `${naik.filter(p => +p.modal_baru_olsera > modalP(p)).length} naik · ${naik.filter(p => +p.modal_baru_olsera < modalP(p)).length} turun di Olsera — cek & putuskan`, '#fff7ed', '#9a3412')
     + kartu('margin', '⚠️', 'Margin tipis / rugi', num(margin.length) + ' barang', 'harga jual < modal + 15%', '#fefce8', '#854d0e')
   getDocs(collection(db, 'opname')).then(sn => { const tunggu = sn.docs.filter(d => d.data().status === 'menunggu').length, batas = tambahHari(hariIni(), -30)
     const lama = products.filter(p => ['toko', 'gudang'].some(l => diLokasi(p, l) && (!p['opname_' + l] || p['opname_' + l] < batas))).length
@@ -351,15 +351,18 @@ window.saveHpp = async () => {
     const batch = writeBatch(db);
     let saved = 0;
 
+    const riw = []
     for (const id of dirtyHpp) {
       const val = parseFloat(document.getElementById(`hpp-input-${id}`)?.value || 0);
       if (val > 0) {
         const field = hppLokasi === 'gudang' ? 'buy_price_gudang' : 'buy_price_toko';
+        const pp = hppData.find(x => x.id === id) || stokAllData.find(x => x.id === id); riw.push({ sku: pp?.sku || id, nama: pp ? namaProduk(pp) : '', lokasi: hppLokasi, lama: +pp?.[field] || 0, baru: val, sumber: 'Isi HPP (manual)', status: pp?.[field] > 0 ? 'diubah' : 'diisi' })
         batch.update(doc(db, 'products', id), { [field]: val, updated_at: serverTimestamp() });
         saved++;
       }
     }
     await batch.commit();
+    catatModal(riw)
     sinkronModalKeAnalitik([...dirtyHpp].map(id => [id, parseFloat(document.getElementById(`hpp-input-${id}`)?.value || 0)]).filter(([, v]) => v > 0))
     dirtyHpp.clear();
     toast(`✅ ${saved} HPP berhasil disimpan`);
@@ -504,6 +507,7 @@ window.uploadToFirestore = async (lokasi) => {
     const BATCH = 400;
 
     addLog(`🚀 Memulai upload <strong>${total.toLocaleString('id-ID')}</strong> produk (${lokasi})...`);
+    const lamaMap = {}; (await getDocs(collection(db, 'products'))).docs.forEach(d => { lamaMap[d.id] = d.data() }); const riwModal = []
 
     for (let i = 0; i < total; i += BATCH) {
       const chunk = rows.slice(i, i + BATCH);
@@ -526,8 +530,11 @@ window.uploadToFirestore = async (lokasi) => {
           [stockField]  : parseFloat(r.stock_qty) || 0,
           updated_at    : serverTimestamp(),
         };
-        // Modal dari Olsera hanya dipakai kalau ada nilainya — modal yang diisi manual tidak ditimpa 0
-        if (parseFloat(r.buy_price) > 0) data[priceField] = parseFloat(r.buy_price);
+        // Modal dari Olsera: mengisi yang kosong; kalau berbeda dengan modal sekarang (naik/turun berapa pun) → ditandai & dicatat, Owner yang memutuskan
+        const hb = parseFloat(r.buy_price) || 0, lp = lamaMap[sku], lm = +lp?.[priceField] || 0
+        if (hb > 0 && !(lm > 0)) { data[priceField] = hb; if (lp) riwModal.push({ sku, nama: data.name, lokasi, lama: 0, baru: hb, sumber: 'Olsera (upload Stok Manager)', status: 'diisi' }) }
+        else if (hb > 0 && hb !== lm) { if (lp.modal_baru_olsera !== hb) { Object.assign(data, { modal_baru_olsera: hb, modal_baru_lama: lm, modal_baru_lokasi: lokasi, modal_naik_at: serverTimestamp() }); riwModal.push({ sku, nama: data.name, lokasi, lama: lm, baru: hb, sumber: 'Olsera (upload Stok Manager)', status: 'terdeteksi' }) } }
+        else if (hb > 0 && lp?.modal_baru_olsera) data.modal_baru_olsera = null
 
         // Tambahkan lokasi
         const ref = doc(db, 'products', sku);
@@ -546,6 +553,7 @@ window.uploadToFirestore = async (lokasi) => {
       addLog(`✓ ${done.toLocaleString('id-ID')} / ${total.toLocaleString('id-ID')} produk`);
     }
 
+    if (riwModal.length) { await catatModal(riwModal); const n = riwModal.filter(x => x.status === 'terdeteksi').length; if (n) addLog(`<span style="color:#9a3412">🔔 ${n} barang modalnya berubah di Olsera — cek di Dashboard → Modal berubah</span>`) }
     // Stok yang sama juga dipakai Analitik Penjualan
     {
       const peta = {}; rows.forEach(r => { const k = String(r.sku || '').trim().toUpperCase(); if (k && k !== 'SKU') peta[k] = (peta[k] || 0) + (parseFloat(r.stock_qty) || 0) })
@@ -972,7 +980,7 @@ window.searchStok = async () => {
   document.getElementById('stok-table-body').innerHTML = rows.slice(0, 100).map(p => `
     <tr id="stok-row-${p.id}">
       <td><strong>${p.sku}</strong></td>
-      <td>${p.name}<div style="margin-top:4px"><input list="dl-sup" id="sp-${p.id}" value="${esc(p.supplier || '')}" placeholder="🏭 supplier…" style="width:100%;max-width:200px;padding:4px 8px;border:1px solid #e5e5e5;border-radius:6px;font-size:12px"></div></td>
+      <td>${p.name} <a href="#" onclick="lihatRiwayatModal('${jsStr(p.sku || p.id)}');return false" title="Riwayat harga modal" style="font-size:11px;text-decoration:none">🕘</a>${+p.modal_baru_olsera > 0 ? ' <span class="badge-jenis" style="background:#fff7ed;color:#9a3412">modal berubah</span>' : ''}<div style="margin-top:4px"><input list="dl-sup" id="sp-${p.id}" value="${esc(p.supplier || '')}" placeholder="🏭 supplier…" style="width:100%;max-width:200px;padding:4px 8px;border:1px solid #e5e5e5;border-radius:6px;font-size:12px"></div></td>
       <td style="font-size:12px;color:#444">${variantText(p)}</td>
       <td>${p.category || '-'}</td>
       <td class="number">
@@ -1006,7 +1014,7 @@ function infoKondisi(p, k) {
   if (k === 'pindah') return kec('🚚 gudang ' + num(stokGudang(p)) + ' → toko')
   if (k === 'mati') return kec('🧊 tertahan ' + rp(totalStok(p) * modalP(p)))
   if (k === 'margin') return kec(`jual ${rp(hargaP(p))} · modal ${rp(modalP(p))}`)
-  if (k === 'modal_naik') return kec(`modal ${rp(modalP(p))} → <b style="color:#b91c1c">${rp(p.modal_baru_olsera)}</b>`) + `<button class="btn btn-sm" style="margin-top:4px;font-size:11px;padding:3px 8px" onclick="pakaiModalBaru('${p.id}')">Pakai modal baru</button> <button class="btn btn-sm" style="margin-top:4px;font-size:11px;padding:3px 8px;background:#eee;color:#333" onclick="abaikanModalBaru('${p.id}')">Abaikan</button>`
+  if (k === 'modal_naik') return kec(`modal ${rp(modalP(p))} → <b>${rp(p.modal_baru_olsera)}</b> ${labelUbah(modalP(p), +p.modal_baru_olsera)}${p.modal_naik_at?.toDate ? ' · ' + p.modal_naik_at.toDate().toLocaleDateString('id-ID') : ''}${hargaP(p) ? ` · jual ${rp(hargaP(p))} (margin baru ${Math.round((hargaP(p) - p.modal_baru_olsera) / hargaP(p) * 100)}%)` : ''}`) + `<button class="btn btn-sm" style="margin-top:4px;font-size:11px;padding:3px 8px" onclick="pakaiModalBaru('${p.id}')">Pakai modal baru</button> <button class="btn btn-sm" style="margin-top:4px;font-size:11px;padding:3px 8px;background:#eee;color:#333" onclick="abaikanModalBaru('${p.id}')">Abaikan</button>`
   return ''
 }
 window.pakaiModalBaru = async (id) => {
@@ -1015,12 +1023,14 @@ window.pakaiModalBaru = async (id) => {
   if (p.lokasi?.includes('toko') || +p.buy_price_toko > 0) upd.buy_price_toko = baru
   if (p.lokasi?.includes('gudang') || +p.buy_price_gudang > 0) upd.buy_price_gudang = baru
   if (!upd.buy_price_toko && !upd.buy_price_gudang) upd.buy_price_toko = baru
-  try { await updateDoc(doc(db, 'products', id), upd); Object.assign(p, upd, { modal_baru_olsera: null }); sinkronModalKeAnalitik([[p.sku || id, baru]]); toast('✅ Modal ' + (p.sku || id) + ' jadi ' + rp(baru)); searchStok() }
+  const lamaM = modalP(p)
+  try { await updateDoc(doc(db, 'products', id), upd); Object.assign(p, upd, { modal_baru_olsera: null }); sinkronModalKeAnalitik([[p.sku || id, baru]]); catatModal([{ sku: p.sku || id, nama: namaProduk(p), lokasi: p.modal_baru_lokasi || '', lama: lamaM, baru, sumber: 'Pakai modal dari Olsera', status: 'dipakai' }]); toast('✅ Modal ' + (p.sku || id) + ' jadi ' + rp(baru)); searchStok() }
   catch (e) { toast('Gagal: ' + e.message, 'error') }
 }
 window.abaikanModalBaru = async (id) => {
   const p = stokAllData.find(x => x.id === id); if (!p) return
-  try { await updateDoc(doc(db, 'products', id), { modal_baru_olsera: null, updated_at: serverTimestamp() }); p.modal_baru_olsera = null; toast('Diabaikan'); searchStok() }
+  const ab = +p.modal_baru_olsera
+  try { await updateDoc(doc(db, 'products', id), { modal_baru_olsera: null, updated_at: serverTimestamp() }); p.modal_baru_olsera = null; catatModal([{ sku: p.sku || id, nama: namaProduk(p), lokasi: p.modal_baru_lokasi || '', lama: modalP(p), baru: ab, sumber: 'Modal Olsera diabaikan (modal tetap)', status: 'diabaikan' }]); toast('Diabaikan'); searchStok() }
   catch (e) { toast('Gagal: ' + e.message, 'error') }
 }
 // Dari kartu Dashboard → buka Update Stok dengan filter
@@ -1330,7 +1340,7 @@ window.terimaPO = async i => {
       const p = produk.find(q => String(q.sku || q.id).toUpperCase() === String(x.sku).toUpperCase()); if (!p) continue
       const up = {}
       if (tambah) { const cur = +((await getDoc(doc(db, 'products', p.id))).data()?.['stock_qty_' + lok]) || 0; up['stock_qty_' + lok] = cur + x.terima; if (!(p.lokasi || []).includes(lok)) up.lokasi = [...(p.lokasi || []), lok]; nStok += x.terima }
-      if (perbarui && x.hargaN > 0 && x.hargaN !== +p['buy_price_' + lok]) up['buy_price_' + lok] = x.hargaN
+      if (perbarui && x.hargaN > 0 && x.hargaN !== +p['buy_price_' + lok]) { up['buy_price_' + lok] = x.hargaN; catatModal([{ sku: p.sku || p.id, nama: namaProduk(p), lokasi: lok, lama: +p['buy_price_' + lok] || 0, baru: x.hargaN, sumber: `Nota barang datang (PO ${po.supplier})`, status: +p['buy_price_' + lok] > 0 ? 'diubah' : 'diisi' }]) }
       if (!Object.keys(up).length) continue
       await updateDoc(doc(db, 'products', p.id), { ...up, updated_at: serverTimestamp() }); Object.assign(p, up)
       if (up['stock_qty_' + lok] != null) sinkronStokKeAnalitik(p.sku || p.id, lok, up['stock_qty_' + lok])
@@ -1599,3 +1609,30 @@ function renderRingkasOp() {
 
 // Tautan langsung ke halaman, mis. …/harmoni-stok-manager/#belanja (dari Analitik)
 document.addEventListener('harmoni-login', () => { const h = location.hash.slice(1); if (h) document.querySelector(`.nav-item[data-page="${CSS.escape(h)}"]`)?.click() }, { once: true })
+
+// ── RIWAYAT HARGA MODAL ────────────────────────────────────────────────────
+// riwayat_modal = { sku, nama, lokasi, lama, baru, sumber, status:'terdeteksi'|'diisi'|'dipakai'|'diabaikan'|'diubah', oleh, tgl, at }
+async function catatModal(list) {   // list: [{sku, nama, lokasi, lama, baru, sumber, status}]
+  const isi = (list || []).filter(x => x && x.sku && +x.baru !== +x.lama); if (!isi.length) return
+  try { for (let i = 0; i < isi.length; i += 400) { const b = writeBatch(db); isi.slice(i, i + 400).forEach(x => b.set(doc(collection(db, 'riwayat_modal')), { ...x, sku: String(x.sku).toUpperCase(), lama: +x.lama || 0, baru: +x.baru || 0, oleh: window._harmoniUserName || '', tgl: hariIni(), at: serverTimestamp() })); await b.commit() } }
+  catch (e) { console.warn('riwayat modal', e) }
+}
+const persenUbah = (lama, baru) => lama > 0 ? Math.round((baru - lama) / lama * 1000) / 10 : null
+const labelUbah = (lama, baru) => { const pc = persenUbah(lama, baru); return baru > lama ? `<b style="color:#b91c1c">▲ ${rp(baru - lama)}${pc != null ? ' (+' + pc + '%)' : ''}</b>` : baru < lama ? `<b style="color:#166534">▼ ${rp(lama - baru)}${pc != null ? ' (' + pc + '%)' : ''}</b>` : '' }
+window.lihatRiwayatModal = async sku => {
+  const K = String(sku).toUpperCase(), p = (stokAllData.length ? stokAllData : await produkSemua()).find(x => String(x.sku || x.id).toUpperCase() === K)
+  document.getElementById('modal-riwayat')?.remove()
+  const bg = document.createElement('div'); bg.id = 'modal-riwayat'
+  bg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
+  bg.onclick = e => { if (e.target === bg) bg.remove() }
+  bg.innerHTML = '<div style="background:#fff;border-radius:16px;padding:18px;max-width:560px;width:100%;max-height:88vh;overflow:auto"><div class="loading"><div class="spinner"></div><span>Memuat riwayat…</span></div></div>'
+  document.body.appendChild(bg)
+  let list = []
+  try { list = (await getDocs(query(collection(db, 'riwayat_modal'), where('sku', '==', K)))).docs.map(d => d.data()).sort((a, b) => (b.at?.seconds || 0) - (a.at?.seconds || 0) || String(b.tgl).localeCompare(String(a.tgl))) } catch (e) { console.warn(e) }
+  const ST = { terdeteksi: ['🔔 terdeteksi', '#fff7ed', '#9a3412'], diisi: ['➕ diisi', '#eff6ff', '#1e40af'], dipakai: ['✅ dipakai', '#dcfce7', '#166534'], diabaikan: ['🚫 diabaikan', '#f1f5f9', '#475569'], diubah: ['✏️ diubah', '#ecfdf5', '#065f46'] }
+  bg.firstChild.innerHTML = `<div style="display:flex;justify-content:space-between;gap:8px;align-items:start"><div><div style="font-size:16px;font-weight:800">🕘 Riwayat harga modal</div><div style="font-size:12px;color:#666">${esc(p ? namaProduk(p) : '')} · ${esc(K)}</div></div><button class="btn btn-secondary btn-sm" onclick="document.getElementById('modal-riwayat').remove()">✕</button></div>
+    <div style="font-size:13px;margin:10px 0">Modal sekarang: <b>${p ? rp(modalP(p)) : '—'}</b>${p && +p.buy_price_toko > 0 && +p.buy_price_gudang > 0 && +p.buy_price_toko !== +p.buy_price_gudang ? ` <span style="color:#666">(toko ${rp(p.buy_price_toko)} · gudang ${rp(p.buy_price_gudang)})</span>` : ''}${p && +p.modal_baru_olsera > 0 ? `<div style="margin-top:4px;color:#9a3412">🔔 Olsera: ${rp(p.modal_baru_olsera)} — belum dipakai</div>` : ''}</div>
+    ${list.length ? `<table style="width:100%"><thead><tr><th style="text-align:left">Tanggal</th><th style="text-align:left">Perubahan</th><th style="text-align:left">Sumber</th></tr></thead><tbody>${list.map(x => { const st = ST[x.status] || [x.status || '', '#f1f5f9', '#475569']
+      return `<tr><td style="font-size:12px;white-space:nowrap">${esc(x.tgl || '')}</td><td style="font-size:12px">${x.lama ? rp(x.lama) : '—'} → <b>${rp(x.baru)}</b><div>${labelUbah(+x.lama, +x.baru)}</div></td><td style="font-size:11px"><span class="badge-jenis" style="background:${st[1]};color:${st[2]}">${st[0]}</span><div style="color:#666">${esc(x.sumber || '')}${x.lokasi ? ' · ' + esc(x.lokasi) : ''}${x.oleh ? ' · ' + esc(x.oleh) : ''}</div></td></tr>` }).join('')}</tbody></table>`
+      : '<p style="font-size:13px;color:#999">Belum ada riwayat perubahan modal (riwayat mulai tercatat sejak fitur ini aktif).</p>'}`
+}
