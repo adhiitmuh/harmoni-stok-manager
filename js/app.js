@@ -1109,7 +1109,7 @@ function analisaLaku(K, n) {
   const rata = rt(n), pct = p3 > 0 ? Math.round((r3 - p3) / p3 * 100) : (r3 > 0 ? 100 : 0)
   const arah = pct >= 20 ? 'naik' : pct <= -20 ? 'turun' : 'stabil'
   const pakai = arah === 'naik' ? Math.max(rata, r3) : arah === 'turun' ? Math.min(rata, r3) : rata
-  return { r3: +r3.toFixed(1), r6: +rt(6).toFixed(1), r12: +rt(12).toFixed(1), rata: +rata.toFixed(1), pakai: +pakai.toFixed(1), pct, arah, t12: q.slice(-12).reduce((t, v) => t + (+v || 0), 0) }
+  return { r3: +r3.toFixed(1), r6: +rt(6).toFixed(1), r12: +rt(12).toFixed(1), rata: +rata.toFixed(1), pakai: +pakai.toFixed(1), pct, arah, t3: q.slice(-3).reduce((t, v) => t + (+v || 0), 0), t6: q.slice(-6).reduce((t, v) => t + (+v || 0), 0), t12: q.slice(-12).reduce((t, v) => t + (+v || 0), 0) }
 }
 async function muatFinalOrder() { const d = hiDb(); if (!d) return {}; try { return (await d.collection('settings').doc('final_order').get()).data()?.m || {} } catch (e) { return {} } }
 
@@ -1125,6 +1125,7 @@ window.hitungBelanja = async () => {
     const foU = {}; Object.entries(fo || {}).forEach(([k, v]) => { if (+v > 0) foU[k.toUpperCase()] = +v })
     // Barang yang sudah dipesan (PO belum datang) tidak diusulkan lagi
     const dipesan = {}; _po.filter(x => x.status === 'dipesan').forEach(x => (x.items || []).forEach(it => { const K = String(it.sku).toUpperCase(); dipesan[K] = (dipesan[K] || 0) + (+it.qty || 0) }))
+    const optOmzet = document.querySelector('#bl-urut option[value="omzet"]'); if (optOmzet) { optOmzet.hidden = !isOwnerSM(); if (!isOwnerSM() && document.getElementById('bl-urut').value === 'omzet') document.getElementById('bl-urut').value = 'prio' }
     const kats = [...new Set(_bh.produk.map(p => p.category).filter(Boolean))].sort()
     selKat.innerHTML = '<option value="">Semua kategori</option>' + kats.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join(''); selKat.value = kats.includes(kat) ? kat : ''
     const items = []
@@ -1189,12 +1190,20 @@ function rowBelanja(r) {
   return `<div class="bl-item${r.keluar ? ' keluar' : ''}">
     <input type="checkbox" ${r.keluar ? '' : 'checked'} title="Ikut dibeli" onchange="blKeluar('${K}', !this.checked)" style="width:18px;height:18px;margin-top:2px">
     <div style="min-width:0"><b>${esc(namaProduk(r.p))}</b>${tag}
-      <div class="bl-sub">${esc(r.K)} · stok ${num(r.stok)} · laku ${r.L}/bln${r.an ? ` <span title="rata-rata 3 / 6 / 12 bulan">(${r.an.r3} / ${r.an.r6} / ${r.an.r12})</span>${r.an.arah === 'naik' ? ` <b style="color:#166534">↑${r.an.pct}%</b>` : r.an.arah === 'turun' ? ` <b style="color:#b91c1c">↓${Math.abs(r.an.pct)}%</b>` : ''} · terjual 12 bln ${num(r.an.t12)}` : ''}${r.dipesan ? ' · sudah di-PO ' + num(r.dipesan) : ''}${r.jual ? ' · jual ' + rpS(r.jual) : ''}${r.untung > 0 ? ' · untung ' + rpS(r.untung) + '/pcs' : ''}</div></div>
+      <div class="bl-sub">${esc(r.K)} · stok ${num(r.stok)} · laku ${r.L}/bln${r.an ? ` <span title="rata-rata 3 / 6 / 12 bulan">(${r.an.r3} / ${r.an.r6} / ${r.an.r12})</span>${r.an.arah === 'naik' ? ` <b style="color:#166534">↑${r.an.pct}%</b>` : r.an.arah === 'turun' ? ` <b style="color:#b91c1c">↓${Math.abs(r.an.pct)}%</b>` : ''} · terjual 3/6/12 bln <b>${num(r.an.t3)} / ${num(r.an.t6)} / ${num(r.an.t12)}</b> pcs${isOwnerSM() && r.jual ? ` · omzet 12 bln ≈ <b>${rpS(r.an.t12 * r.jual)}</b>` : ''}` : ''}${r.dipesan ? ' · sudah di-PO ' + num(r.dipesan) : ''}${r.jual ? ' · jual ' + rpS(r.jual) : ''}${r.untung > 0 ? ' · untung ' + rpS(r.untung) + '/pcs' : ''}</div></div>
     <div style="text-align:right;white-space:nowrap"><b>${rpS(q * r.beli)}</b></div>
     <div class="bl-atur"><select onchange="blSup('${K}', this.value)" ${r.opsi.length ? '' : 'disabled'}>${opsi}</select>
       <span style="white-space:nowrap">qty <input type="number" min="0" inputmode="numeric" value="${q}" onchange="blQty('${K}', this.value)"> × ${r.beli ? rpS(r.beli) : '<span style="color:#b91c1c">modal ?</span>'}</span>
       ${r.status === 'sebagian' ? `<span class="bl-sub" style="color:#92400e">butuh ${num(r.qty)}, dipotong budget</span>` : ''}${r.manual ? `<span class="bl-sub">diubah manual (usulan ${num(r.usul)})</span>` : ''}</div>
   </div>`
+}
+// Urutan tampil: prioritas belanja (default), paling laku, atau perkiraan omzet terbesar (qty 12 bln × harga jual)
+window.aturBudget = () => { if (_bl) aturBudget() }
+function urutBl(a, b) {
+  const u = document.getElementById('bl-urut')?.value || 'prio', q = r => r.an?.t12 || 0
+  if (u === 'qty') return q(b) - q(a) || (a.rank || 9e9) - (b.rank || 9e9)
+  if (u === 'omzet') return q(b) * (b.jual || 0) - q(a) * (a.jual || 0) || (a.rank || 9e9) - (b.rank || 9e9)
+  return (a.rank || 9e9) - (b.rank || 9e9)
 }
 function renderBelanja(B, sisa) {
   const rows = _bl.rows, ambil = rows.filter(r => r.status === 'masuk' || r.status === 'sebagian')
@@ -1203,7 +1212,8 @@ function renderBelanja(B, sisa) {
   const kurang = luar.reduce((t, r) => t + r.qty * r.beli, 0) + ambil.filter(r => r.status === 'sebagian').reduce((t, r) => t + (r.qty - r.ambil) * r.beli, 0)
   // Kelompokkan per supplier → 1 PO per supplier
   const g = {}; ambil.forEach(r => { const n = r.s?.n || ''; (g[n] = g[n] || { n, rows: [], total: 0 }).rows.push(r); g[n].total += r.ambil * r.beli })
-  _bl.grup = Object.values(g).sort((a, b) => (!a.n) - (!b.n) || b.total - a.total)
+  const skorBl = r => { const u = document.getElementById('bl-urut')?.value || 'prio', q = r.an?.t12 || 0; return u === 'qty' ? q : u === 'omzet' ? q * (r.jual || 0) : 0 }
+  _bl.grup = Object.values(g).sort((a, b) => (!a.n) - (!b.n) || (Math.max(0, ...b.rows.map(skorBl)) - Math.max(0, ...a.rows.map(skorBl))) || b.total - a.total)
   const kartu = (ikon, judul, val, sub, bg, fg) => `<div class="ringkas-kartu" style="background:${bg};color:${fg};cursor:default"><div class="rk-ikon">${ikon} ${judul}</div><div class="rk-val">${val}</div><div class="rk-sub">${sub}</div></div>`
   document.getElementById('bl-ringkas').innerHTML = `<div class="ringkas-grid" style="margin-bottom:14px">
     ${kartu('🛒', 'Total belanja', rpS(total), `${num(ambil.length)} barang · ${num(_bl.grup.filter(x => x.n).length)} supplier`, '#ecfdf5', '#166534')}
@@ -1216,8 +1226,8 @@ function renderBelanja(B, sisa) {
     return `<div class="bl-sup"><div class="bl-sup-kepala"><div><b style="font-size:14px">${x.n ? '🏭 ' + esc(x.n) : '❓ Belum ada supplier'}</b>
       <div class="bl-sub" style="font-size:11px;color:#666">${num(x.rows.length)} barang · <b>${rpS(x.total)}</b>${sup?.lama ? ' · kirim ±' + sup.lama + ' hari' : ''}${x.n && !sup?.wa ? ' · <span style="color:#b91c1c">no. WA belum diisi</span>' : ''}</div></div>
       ${x.n ? `<div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="buatPO(${i})">📲 Simpan PO & kirim WA</button><button class="btn btn-secondary btn-sm" onclick="cetakPOGrup(${i})">🖨️ Cetak / PDF</button></div>` : '<span class="bl-sub" style="font-size:11px">pilih supplier per barang dulu</span>'}</div>
-      ${x.rows.sort((a, b) => a.rank - b.rank).map(rowBelanja).join('')}</div>` }
-  const lipat = (judul, list, ket) => list.length ? `<details class="card" style="padding:12px 14px"><summary style="cursor:pointer;font-weight:700;font-size:14px">${judul} (${list.length})</summary><p style="font-size:12px;color:#666;margin:6px 0">${ket}</p><div class="bl-sup">${list.map(rowBelanja).join('')}</div></details>` : ''
+      ${x.rows.sort(urutBl).map(rowBelanja).join('')}</div>` }
+  const lipat = (judul, list, ket) => list.length ? `<details class="card" style="padding:12px 14px"><summary style="cursor:pointer;font-weight:700;font-size:14px">${judul} (${list.length})</summary><p style="font-size:12px;color:#666;margin:6px 0">${ket}</p><div class="bl-sup">${[...list].sort(urutBl).map(rowBelanja).join('')}</div></details>` : ''
   document.getElementById('bl-hasil').innerHTML = (_bl.grup.length ? _bl.grup.map(grupHTML).join('') : `<div class="card"><p style="color:#666;font-size:13px">${rows.length ? 'Belum ada barang yang masuk budget.' : '✅ Tidak ada barang yang perlu dibeli sekarang (stok cukup / sudah di-PO).'}</p></div>`)
     + lipat('⏳ Belum masuk budget', luar, 'Urutan sesuai prioritas — tambah budget atau kurangi qty barang lain supaya ikut.')
     + lipat('❔ Belum ada harga beli', tanpa, 'Isi modal di <b>Isi HPP</b> atau masukkan nota/penawaran supaya bisa dihitung.')
