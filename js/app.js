@@ -1096,31 +1096,46 @@ window.keBelanja = keBelanja
 
 async function loadBelanja() {
   const b = lsGet('bl_budget', ''); if (b && !document.getElementById('bl-budget').value) document.getElementById('bl-budget').value = (+b).toLocaleString('id-ID')
-  const o = lsGet('bl_opsi', null); if (o && !_bl) { document.getElementById('bl-bulan').value = o.bulan || '1'; document.getElementById('bl-mode').value = o.mode || 'rek'; document.getElementById('bl-final').checked = o.final !== false }
+  const o = lsGet('bl_opsi', null); if (o && !_bl) { document.getElementById('bl-bulan').value = o.bulan || '1'; document.getElementById('bl-mode').value = o.mode || 'rek'; document.getElementById('bl-final').checked = o.final !== false; document.getElementById('bl-rata').value = o.rata || '3'; document.getElementById('bl-tren').checked = o.tren !== false; window._blKat = o.kat || '' }
   await Promise.all([loadPO(), muatMusim()]); await hitungBelanja(); renderMusim()
 }
 window.formatBudget = el => { const v = el.value.replace(/\D/g, ''); el.value = v ? (+v).toLocaleString('id-ID') : ''; lsSet('bl_budget', v)
   clearTimeout(window._blT); window._blT = setTimeout(() => { if (_bl) aturBudget() }, 350) }
+// Analisa laku per SKU dari riwayat penjualan (Analitik): rata-rata N bulan, 3 bulan terakhir vs 3 bulan sebelumnya (tren)
+function analisaLaku(K, n) {
+  const q = _riwayat.q[K]; if (!q || !q.length) return null
+  const rt = m => { const a = q.slice(-m); return a.length ? a.reduce((t, v) => t + (+v || 0), 0) / a.length : 0 }
+  const r3 = rt(3), sebelum = q.slice(-6, -3), p3 = sebelum.length ? sebelum.reduce((t, v) => t + (+v || 0), 0) / sebelum.length : 0
+  const rata = rt(n), pct = p3 > 0 ? Math.round((r3 - p3) / p3 * 100) : (r3 > 0 ? 100 : 0)
+  const arah = pct >= 20 ? 'naik' : pct <= -20 ? 'turun' : 'stabil'
+  const pakai = arah === 'naik' ? Math.max(rata, r3) : arah === 'turun' ? Math.min(rata, r3) : rata
+  return { r3: +r3.toFixed(1), r6: +rt(6).toFixed(1), r12: +rt(12).toFixed(1), rata: +rata.toFixed(1), pakai: +pakai.toFixed(1), pct, arah, t12: q.slice(-12).reduce((t, v) => t + (+v || 0), 0) }
+}
 async function muatFinalOrder() { const d = hiDb(); if (!d) return {}; try { return (await d.collection('settings').doc('final_order').get()).data()?.m || {} } catch (e) { return {} } }
 
 window.hitungBelanja = async () => {
   const box = document.getElementById('bl-hasil'); box.innerHTML = '<div class="loading"><div class="spinner"></div><span>Menghitung kebutuhan, harga & supplier…</span></div>'
   const bulan = +document.getElementById('bl-bulan').value || 1, mode = document.getElementById('bl-mode').value, pakaiFinal = document.getElementById('bl-final').checked
-  lsSet('bl_opsi', { bulan: String(bulan), mode, final: pakaiFinal })
+  const rata = +document.getElementById('bl-rata').value || 3, tren = document.getElementById('bl-tren').checked, selKat = document.getElementById('bl-kat')
+  const kat = window._blKat != null ? window._blKat : selKat.value; window._blKat = null
+  lsSet('bl_opsi', { bulan: String(bulan), mode, final: pakaiFinal, rata: String(rata), tren, kat })
   try {
     const [, , , fo] = await Promise.all([muatSupplier(), muatLaku(), _bh ? null : hitungBandingHarga(), pakaiFinal ? muatFinalOrder() : {}, muatMusim()])
     const lamaSup = n => +(supplierList.find(x => x.nama === n)?.lama) || 0
     const foU = {}; Object.entries(fo || {}).forEach(([k, v]) => { if (+v > 0) foU[k.toUpperCase()] = +v })
     // Barang yang sudah dipesan (PO belum datang) tidak diusulkan lagi
     const dipesan = {}; _po.filter(x => x.status === 'dipesan').forEach(x => (x.items || []).forEach(it => { const K = String(it.sku).toUpperCase(); dipesan[K] = (dipesan[K] || 0) + (+it.qty || 0) }))
+    const kats = [...new Set(_bh.produk.map(p => p.category).filter(Boolean))].sort()
+    selKat.innerHTML = '<option value="">Semua kategori</option>' + kats.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join(''); selKat.value = kats.includes(kat) ? kat : ''
     const items = []
     _bh.produk.forEach(p => {
-      const K = String(p.sku || p.id).toUpperCase(), L = lakuSku(p), F = foU[K] || 0
+      if (selKat.value && p.category !== selKat.value) return
+      const K = String(p.sku || p.id).toUpperCase(), F = foU[K] || 0, an = analisaLaku(K, rata), L = an ? (tren ? an.pakai : an.rata) : lakuSku(p)
       if (!(L > 0) && !(F > 0) && !faktorMusim(p)) return
       const opsi = Object.entries(_bh.harga[K] || {}).map(([n, e]) => ({ n, harga: +e.harga || 0, nama: e.nama || '', jenis: e.jenis || 'nota', lama: lamaSup(n), kual: +(_bh.kual[K + '|' + n]?.nilai) || 0 }))
       if (p.supplier && !opsi.some(o => o.n === p.supplier)) opsi.push({ n: p.supplier, harga: modalP(p), nama: '', jenis: 'modal', lama: lamaSup(p.supplier), kual: +(_bh.kual[K + '|' + p.supplier]?.nilai) || 0 })
       opsi.sort((a, b) => (a.harga || 9e15) - (b.harga || 9e15))
-      items.push({ K, p, L, F, stok: totalStok(p), dipesan: dipesan[K] || 0, opsi })
+      items.push({ K, p, L, F, an, stok: totalStok(p), dipesan: dipesan[K] || 0, opsi })
     })
     _bl = { items, bulan, mode, final: pakaiFinal, ubah: lsGet('bl_ubah', {}), adaFinal: Object.keys(foU).length }
     aturBudget()
@@ -1174,7 +1189,7 @@ function rowBelanja(r) {
   return `<div class="bl-item${r.keluar ? ' keluar' : ''}">
     <input type="checkbox" ${r.keluar ? '' : 'checked'} title="Ikut dibeli" onchange="blKeluar('${K}', !this.checked)" style="width:18px;height:18px;margin-top:2px">
     <div style="min-width:0"><b>${esc(namaProduk(r.p))}</b>${tag}
-      <div class="bl-sub">${esc(r.K)} · stok ${num(r.stok)} · laku ${r.L}/bln${r.dipesan ? ' · sudah di-PO ' + num(r.dipesan) : ''}${r.jual ? ' · jual ' + rpS(r.jual) : ''}${r.untung > 0 ? ' · untung ' + rpS(r.untung) + '/pcs' : ''}</div></div>
+      <div class="bl-sub">${esc(r.K)} · stok ${num(r.stok)} · laku ${r.L}/bln${r.an ? ` <span title="rata-rata 3 / 6 / 12 bulan">(${r.an.r3} / ${r.an.r6} / ${r.an.r12})</span>${r.an.arah === 'naik' ? ` <b style="color:#166534">↑${r.an.pct}%</b>` : r.an.arah === 'turun' ? ` <b style="color:#b91c1c">↓${Math.abs(r.an.pct)}%</b>` : ''} · terjual 12 bln ${num(r.an.t12)}` : ''}${r.dipesan ? ' · sudah di-PO ' + num(r.dipesan) : ''}${r.jual ? ' · jual ' + rpS(r.jual) : ''}${r.untung > 0 ? ' · untung ' + rpS(r.untung) + '/pcs' : ''}</div></div>
     <div style="text-align:right;white-space:nowrap"><b>${rpS(q * r.beli)}</b></div>
     <div class="bl-atur"><select onchange="blSup('${K}', this.value)" ${r.opsi.length ? '' : 'disabled'}>${opsi}</select>
       <span style="white-space:nowrap">qty <input type="number" min="0" inputmode="numeric" value="${q}" onchange="blQty('${K}', this.value)"> × ${r.beli ? rpS(r.beli) : '<span style="color:#b91c1c">modal ?</span>'}</span>
@@ -1571,3 +1586,6 @@ function renderRingkasOp() {
     ${kartu('🏪', 'Toko >30 hari', num(lt) + ' barang', 'belum dihitung', '#fff7ed', '#9a3412')}${kartu('🏬', 'Gudang >30 hari', num(lg) + ' barang', 'belum dihitung', '#fff7ed', '#9a3412')}
     ${own ? kartu('⚖️', 'Selisih 30 hari', (sel30 < 0 ? '−' : '+') + rpS(Math.abs(sel30)), 'nilai modal, opname disetujui', sel30 < 0 ? '#fef2f2' : '#ecfdf5', sel30 < 0 ? '#991b1b' : '#166534') : ''}</div>`
 }
+
+// Tautan langsung ke halaman, mis. …/harmoni-stok-manager/#belanja (dari Analitik)
+document.addEventListener('harmoni-login', () => { const h = location.hash.slice(1); if (h) document.querySelector(`.nav-item[data-page="${CSS.escape(h)}"]`)?.click() }, { once: true })

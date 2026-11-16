@@ -481,6 +481,9 @@
         <div class="form-group" style="margin:0"><label>Budget belanja (Rp)</label><input id="bl-budget" inputmode="numeric" placeholder="kosong = tanpa batas" oninput="formatBudget(this)"></div>
         <div class="form-group" style="margin:0"><label>Stok untuk berapa lama</label><select id="bl-bulan" onchange="hitungBelanja()"><option value="0.5">2 minggu</option><option value="1" selected>1 bulan</option><option value="2">2 bulan</option><option value="3">3 bulan</option></select></div>
         <div class="form-group" style="margin:0"><label>Pilih supplier</label><select id="bl-mode" onchange="hitungBelanja()"><option value="rek">🏆 Rekomendasi (harga + kualitas)</option><option value="utama">⭐ Supplier utama</option><option value="cepat">⚡ Paling cepat kirim</option></select></div>
+        <div class="form-group" style="margin:0"><label>Laku/bln dihitung dari</label><select id="bl-rata" onchange="hitungBelanja()"><option value="3">rata-rata 3 bulan</option><option value="6">rata-rata 6 bulan</option><option value="12">rata-rata 12 bulan</option></select></div>
+        <div class="form-group" style="margin:0"><label>Kategori</label><select id="bl-kat" onchange="hitungBelanja()"><option value="">Semua kategori</option></select></div>
+        <label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="bl-tren" checked onchange="hitungBelanja()"> ikuti tren (naik → pakai 3 bln terakhir, turun → dikurangi)</label>
         <label style="font-size:12px;display:flex;gap:6px;align-items:center"><input type="checkbox" id="bl-final" checked onchange="hitungBelanja()"> pakai Final Order dari Analitik bila ada</label>
       </div>
       <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn btn-primary" onclick="hitungBelanja()">🧮 Hitung daftar belanja</button><button class="btn btn-secondary" onclick="resetBelanja()">↺ Kembalikan usulan awal</button></div>
