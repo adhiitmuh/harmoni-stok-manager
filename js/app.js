@@ -1107,7 +1107,7 @@ window.keBelanja = keBelanja
 async function loadBelanja() {
   const b = lsGet('bl_budget', ''); if (b && !document.getElementById('bl-budget').value) document.getElementById('bl-budget').value = (+b).toLocaleString('id-ID')
   const o = lsGet('bl_opsi', null); if (o && !_bl) { document.getElementById('bl-bulan').value = o.bulan || '1'; document.getElementById('bl-mode').value = o.mode || 'rek'; document.getElementById('bl-final').checked = o.final !== false; document.getElementById('bl-rata').value = o.rata || '3'; document.getElementById('bl-tren').checked = o.tren !== false; window._blKat = o.kat || '' }
-  await Promise.all([loadPO(), muatMusim()]); await hitungBelanja(); renderMusim()
+  await Promise.all([loadPO(), muatMusim(), muatCustom()]); await hitungBelanja(); renderMusim(); renderCustomBahan()
 }
 window.formatBudget = el => { const v = el.value.replace(/\D/g, ''); el.value = v ? (+v).toLocaleString('id-ID') : ''; lsSet('bl_budget', v)
   clearTimeout(window._blT); window._blT = setTimeout(() => { if (_bl) aturBudget() }, 350) }
@@ -1130,7 +1130,8 @@ window.hitungBelanja = async () => {
   const kat = window._blKat != null ? window._blKat : selKat.value; window._blKat = null
   lsSet('bl_opsi', { bulan: String(bulan), mode, final: pakaiFinal, rata: String(rata), tren, kat })
   try {
-    const [, , , fo] = await Promise.all([muatSupplier(), muatLaku(), _bh ? null : hitungBandingHarga(), pakaiFinal ? muatFinalOrder() : {}, muatMusim()])
+    const [, , , fo] = await Promise.all([muatSupplier(), muatLaku(), _bh ? null : hitungBandingHarga(), pakaiFinal ? muatFinalOrder() : {}, muatMusim(), muatCustom()])
+    const bahanCu = kebutuhanCustom(rata)
     const lamaSup = n => +(supplierList.find(x => x.nama === n)?.lama) || 0
     const foU = {}; Object.entries(fo || {}).forEach(([k, v]) => { if (+v > 0) foU[k.toUpperCase()] = +v })
     // Barang yang sudah dipesan (PO belum datang) tidak diusulkan lagi
@@ -1141,12 +1142,13 @@ window.hitungBelanja = async () => {
     const items = []
     _bh.produk.forEach(p => {
       if (selKat.value && p.category !== selKat.value) return
-      const K = String(p.sku || p.id).toUpperCase(), F = foU[K] || 0, an = analisaLaku(K, rata), L = an ? (tren ? an.pakai : an.rata) : lakuSku(p)
+      const K = String(p.sku || p.id).toUpperCase(), F = foU[K] || 0, an = analisaLaku(K, rata), C = bahanCu[K]?.laku || 0
+      const L = +((an ? (tren ? an.pakai : an.rata) : lakuSku(p)) + C).toFixed(1)   // + bahan yang terpakai untuk barang custom
       if (!(L > 0) && !(F > 0) && !faktorMusim(p)) return
       const opsi = Object.entries(_bh.harga[K] || {}).map(([n, e]) => ({ n, harga: +e.harga || 0, nama: e.nama || '', jenis: e.jenis || 'nota', lama: lamaSup(n), kual: +(_bh.kual[K + '|' + n]?.nilai) || 0 }))
       if (p.supplier && !opsi.some(o => o.n === p.supplier)) opsi.push({ n: p.supplier, harga: modalP(p), nama: '', jenis: 'modal', lama: lamaSup(p.supplier), kual: +(_bh.kual[K + '|' + p.supplier]?.nilai) || 0 })
       opsi.sort((a, b) => (a.harga || 9e15) - (b.harga || 9e15))
-      items.push({ K, p, L, F, an, stok: totalStok(p), dipesan: dipesan[K] || 0, opsi })
+      items.push({ K, p, L, F, an, C, Cr: bahanCu[K]?.rincian || [], stok: totalStok(p), dipesan: dipesan[K] || 0, opsi })
     })
     _bl = { items, bulan, mode, final: pakaiFinal, ubah: lsGet('bl_ubah', {}), adaFinal: Object.keys(foU).length }
     aturBudget()
@@ -1193,6 +1195,7 @@ function rowBelanja(r) {
     + (r.kondisi === 'kosong' ? '<span class="bl-tag" style="background:#fee2e2;color:#991b1b">kosong</span>' : r.kondisi === 'kritis' ? '<span class="bl-tag" style="background:#fef3c7;color:#92400e">habis sebelum kiriman datang</span>' : '')
     + (r.mu ? `<span class="bl-tag" style="background:#fef3c7;color:#92400e">📅 ${esc(r.mu.nama)} ×${r.mu.f}</span>` : '')
     + (r.F > 0 && _bl.final ? '<span class="bl-tag" style="background:#e0e7ff;color:#3730a3">Final Order</span>' : '')
+    + (r.C > 0 ? `<span class="bl-tag" style="background:#ede9fe;color:#5b21b6" title="${esc(r.Cr.map(x => x.kata + ': ' + x.q + '/bln').join(' · '))}">🧵 bahan custom +${r.C}/bln</span>` : '')
     + (r.untung <= 0 && r.beli > 0 && r.jual > 0 ? '<span class="bl-tag" style="background:#fee2e2;color:#991b1b">tidak untung</span>' : '')
   const opsi = r.opsi.length ? r.opsi.map(o => `<option value="${esc(o.n)}"${o.n === r.s?.n ? ' selected' : ''}>${o.n === r.p.supplier ? '⭐ ' : ''}${esc(o.n)} · ${o.harga ? rpS(o.harga) : 'harga ?'}${o.lama ? ' · ' + o.lama + ' hr' : ''}${o.kual ? ' · ' + '★'.repeat(o.kual) : ''}${o.jenis === 'penawaran' ? ' · penawaran' : o.jenis === 'catatan' ? ' · catatan' : ''}</option>`).join('')
     : '<option value="">— belum ada supplier & harga —</option>'
@@ -1424,6 +1427,96 @@ function renderMusim() {
       <div style="display:flex;gap:6px;align-items:start"><button class="btn btn-secondary btn-sm" onclick="ubahMusim('${jsStr(m.id)}')">✏️ Ubah</button><button class="btn btn-sm" style="background:#f1f5f9;color:#475569" onclick="hapusMusim('${jsStr(m.id)}')">Hapus</button></div></div></div>` }).join('')
     : '<p style="font-size:13px;color:#666">Belum ada musim. Pakai template di bawah atau tambah sendiri.</p>'
 }
+// ── Bahan barang custom ────────────────────────────────────────────
+// Analitik menyimpan qty barang custom per jenis per bulan (penjualan_custom_ringkas, dari laporan Olsera "Item Penjualan").
+// Resep (harmoni-stok `resep_custom`): kata kunci jenis → bahan [{sku, nama, qty per pcs}]. Kebutuhan bahan/bln
+// = rata-rata qty jenis yang cocok × qty per pcs, ditambahkan ke laku/bln bahan itu di Daftar Belanja.
+let _cu = null
+async function muatCustom(paksa) {
+  if (_cu && !paksa) return _cu
+  _cu = { bulan: [], jenis: {}, resep: [], info: '' }
+  const d = hiDb()
+  try {
+    const [rs, rp] = await Promise.all([d ? d.collection('penjualan_custom_ringkas').get() : null, getDocs(collection(db, 'resep_custom'))])
+    _cu.resep = rp.docs.map(x => ({ id: x.id, ...x.data() }))
+    const docs = []; rs?.forEach(x => docs.push({ id: x.id, j: x.data().j || [] }))
+    docs.sort((a, b) => a.id.localeCompare(b.id)); _cu.bulan = docs.map(x => x.id)
+    docs.forEach((m, i) => m.j.forEach(({ k, q }) => { (_cu.jenis[k] = _cu.jenis[k] || new Array(docs.length).fill(0))[i] += +q || 0 }))
+    if (!docs.length) _cu.info = 'Belum ada data barang custom — upload laporan Olsera "Item Penjualan" di Analitik → tab 🧵 Barang Custom.'
+  } catch (e) { console.warn('custom', e); _cu.info = e.code === 'permission-denied' ? 'Akun ini belum punya akses data custom.' : 'Data custom gagal dimuat.' }
+  return _cu
+}
+const kataResep = r => String(r.kata || '').toUpperCase().split(',').map(t => t.trim()).filter(Boolean)
+// Resep yang cocok untuk satu jenis: kata kunci terpanjang yang terkandung di nama jenis
+function resepUntuk(jenis) { let best = null, panjang = 0; (_cu?.resep || []).forEach(r => kataResep(r).forEach(k => { if (jenis.includes(k) && k.length > panjang) { best = r; panjang = k.length } })); return best }
+const rataJenis = (q, n) => { const a = q.slice(-n); return a.length ? a.reduce((t, v) => t + v, 0) / a.length : 0 }
+function kebutuhanCustom(n = 3) {
+  const out = {}; if (!_cu) return out
+  Object.entries(_cu.jenis).forEach(([j, q]) => { const r = resepUntuk(j); if (!r) return; const avg = rataJenis(q, n); if (!(avg > 0)) return
+    ;(r.bahan || []).forEach(b => { const K = String(b.sku).toUpperCase(), v = avg * (+b.qty || 0); if (!(v > 0)) return
+      const o = out[K] = out[K] || { laku: 0, per: {} }; o.laku += v; o.per[r.kata] = (o.per[r.kata] || 0) + v }) })
+  Object.values(out).forEach(o => { o.laku = +o.laku.toFixed(1); o.rincian = Object.entries(o.per).map(([kata, q]) => ({ kata, q: +q.toFixed(1) })).sort((a, b) => b.q - a.q) })
+  return out
+}
+function renderCustomBahan() {
+  const box = document.getElementById('cu-list'); if (!box || !_cu) return
+  const n = 3, q = (document.getElementById('cu-cari')?.value || '').trim().toUpperCase()
+  const daftar = Object.entries(_cu.jenis).map(([j, a]) => ({ j, avg: rataJenis(a, n), tot: a.reduce((t, v) => t + v, 0), r: resepUntuk(j) }))
+    .filter(x => x.tot > 0 && (!q || x.j.includes(q))).sort((a, b) => b.avg - a.avg || b.tot - a.tot)
+  const ada = daftar.filter(x => x.r).length, belum = daftar.length - ada
+  document.getElementById('cu-n').textContent = _cu.bulan.length ? `· ${_cu.bulan.length} bulan data · ${(_cu.resep || []).length} resep` : ''
+  const info = _cu.info ? `<p style="font-size:12px;color:#b45309">${esc(_cu.info)}</p>` : `<p style="font-size:12px;color:#666;margin-bottom:6px">Rata-rata ${n} bulan terakhir (${_cu.bulan.slice(-n).join(', ')}). ${ada} jenis sudah punya bahan, ${belum} belum.</p>`
+  box.innerHTML = info + (daftar.length ? `<div style="max-height:360px;overflow:auto"><table class="tbl-cu"><tr><th>Jenis custom & bahan</th><th style="text-align:right">pcs/bln</th><th></th></tr>${daftar.slice(0, 150).map(x => `<tr>
+      <td><b style="font-weight:600">${esc(x.j)}</b><div style="font-size:11px;margin-top:2px;color:${x.r ? '#166534' : '#999'}">${x.r ? `🔑 ${esc(x.r.kata)} → ${(x.r.bahan || []).map(b => `${esc(b.nama || b.sku)} ×${b.qty}`).join(', ')}` : 'bahan belum diatur'}</div></td>
+      <td style="text-align:right;font-weight:700;white-space:nowrap">${x.avg ? +x.avg.toFixed(1) : '<span style="color:#999">0</span>'}</td>
+      <td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="aturResepCustom('${jsStr(x.r ? x.r.id : '')}','${jsStr(x.j)}')">${x.r ? '✏️' : '+ Bahan'}</button></td></tr>`).join('')}</table></div>${daftar.length > 150 ? `<p style="font-size:11px;color:#666">… ${daftar.length - 150} jenis lain — pakai pencarian</p>` : ''}` : '')
+  const rl = document.getElementById('cu-resep')
+  rl.innerHTML = (_cu.resep || []).length ? (_cu.resep || []).sort((a, b) => String(a.kata).localeCompare(String(b.kata))).map(r => {
+    const jml = Object.keys(_cu.jenis).filter(j => resepUntuk(j) === r).length
+    return `<div class="po-kartu"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><div><b>🔑 ${esc(r.kata)}</b> <span style="font-size:12px;color:#666">· cocok ${jml} jenis</span>
+      <div style="font-size:12px;margin-top:2px">${(r.bahan || []).map(b => `${esc(b.nama || b.sku)} <b>×${b.qty}</b>/pcs`).join(' · ') || '<span style="color:#b91c1c">belum ada bahan</span>'}</div></div>
+      <div style="display:flex;gap:6px;align-items:start"><button class="btn btn-secondary btn-sm" onclick="aturResepCustom('${jsStr(r.id)}')">✏️ Ubah</button><button class="btn btn-sm" style="background:#f1f5f9;color:#475569" onclick="hapusResepCustom('${jsStr(r.id)}')">🗑</button></div></div></div>` }).join('')
+    : '<p style="font-size:12px;color:#666">Belum ada resep bahan.</p>'
+}
+window.renderCustomBahan = renderCustomBahan
+let _cuBahan = []
+function renderBahanForm() {
+  document.getElementById('cu-bahan').innerHTML = _cuBahan.length ? _cuBahan.map((b, i) => `<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px;font-size:13px">
+    <span style="flex:1;min-width:0">${esc(b.nama || b.sku)} <span style="color:#999;font-size:11px">${esc(b.sku)}</span></span>
+    <input type="number" min="0" step="0.01" value="${b.qty}" style="width:80px" onchange="_cuQty(${i}, this.value)"><span style="font-size:11px;color:#666">/pcs</span>
+    <button class="btn btn-sm" style="background:#f1f5f9;color:#475569" onclick="_cuHapusBahan(${i})">✕</button></div>`).join('') : '<p style="font-size:12px;color:#999">Belum ada bahan — cari barang di bawah lalu Tambah.</p>'
+}
+window._cuQty = (i, v) => { _cuBahan[i].qty = Math.max(0, +v || 0) }
+window._cuHapusBahan = i => { _cuBahan.splice(i, 1); renderBahanForm() }
+window.aturResepCustom = async (id, jenis) => {
+  const r = id ? _cu.resep.find(x => x.id === id) : null
+  document.getElementById('cu-id').value = r ? r.id : ''
+  document.getElementById('cu-kata').value = r ? r.kata : (jenis || '')
+  _cuBahan = r ? (r.bahan || []).map(b => ({ ...b })) : []
+  const prod = await produkSemua()
+  document.getElementById('cu-produk-list').innerHTML = prod.map(p => `<option value="${esc(String(p.sku || p.id))} · ${esc(namaProduk(p))}">`).join('')
+  renderBahanForm(); const f = document.getElementById('cu-form'); f.open = true; f.scrollIntoView({ behavior: 'smooth' })
+}
+window.tambahBahanCustom = async () => {
+  const el = document.getElementById('cu-produk'), v = el.value.trim(), qty = Math.max(0, +document.getElementById('cu-qty').value || 0)
+  const prod = await produkSemua(), sku = v.split(' · ')[0].trim().toUpperCase()
+  const p = prod.find(x => String(x.sku || x.id).toUpperCase() === sku) || prod.find(x => namaProduk(x).toUpperCase() === v.toUpperCase())
+  if (!p) return toast('Pilih barang dari daftar (ketik nama lalu pilih)', 'error'); if (!(qty > 0)) return toast('Isi qty bahan per 1 pcs custom', 'error')
+  const K = String(p.sku || p.id).toUpperCase(), ada = _cuBahan.find(b => String(b.sku).toUpperCase() === K)
+  if (ada) ada.qty = qty; else _cuBahan.push({ sku: K, nama: namaProduk(p), qty })
+  el.value = ''; renderBahanForm()
+}
+window.simpanResepCustom = async () => {
+  const kata = document.getElementById('cu-kata').value.split(',').map(t => t.trim().toUpperCase()).filter(Boolean).join(', ')
+  if (!kata) return toast('Isi kata kunci jenis custom', 'error'); if (!_cuBahan.length) return toast('Tambahkan minimal 1 bahan', 'error')
+  const id = document.getElementById('cu-id').value || idSup(kata).slice(0, 120)
+  try { await setDoc(doc(db, 'resep_custom', id), { kata, bahan: _cuBahan.map(b => ({ sku: b.sku, nama: b.nama || '', qty: +b.qty || 0 })), oleh: window._harmoniUserName || '', updated_at: serverTimestamp() })
+    toast('✅ Resep bahan disimpan'); batalResepCustom(); await muatCustom(true); renderCustomBahan(); if (_bl) hitungBelanja() } catch (e) { toast('Gagal: ' + e.message, 'error') }
+}
+window.batalResepCustom = () => { document.getElementById('cu-id').value = ''; document.getElementById('cu-kata').value = ''; _cuBahan = []; renderBahanForm(); document.getElementById('cu-form').open = false }
+window.hapusResepCustom = async id => { const r = _cu.resep.find(x => x.id === id); if (!r || !confirm(`Hapus resep bahan "${r.kata}"?`)) return
+  try { await deleteDoc(doc(db, 'resep_custom', id)); await muatCustom(true); renderCustomBahan(); if (_bl) hitungBelanja(); toast('Resep dihapus') } catch (e) { toast('Gagal: ' + e.message, 'error') } }
+
 // Cari barang yang penjualannya naik di bulan-bulan musim (dari riwayat penjualan Analitik)
 window.cariBarangMusim = async () => {
   const mulai = mmdd(document.getElementById('ms-mulai').value), selesai = mmdd(document.getElementById('ms-selesai').value), box = document.getElementById('ms-usul')

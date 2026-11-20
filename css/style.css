@@ -332,3 +332,7 @@ td input[type="number"]:focus { outline: none; border-color: var(--green-mid); b
 .op-baris input:placeholder-shown { border-color: #fbbf24; background: #fffbeb; }
 .op-baris.baru { animation: opKilat .8s; }
 @keyframes opKilat { from { background: #dcfce7; } to { background: transparent; } }
+/* Bahan barang custom */
+.tbl-cu { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl-cu th { text-align: left; font-size: 11px; color: #666; padding: 6px; border-bottom: 2px solid #eee; position: sticky; top: 0; background: #fff; }
+.tbl-cu td { padding: 6px; border-bottom: 1px solid #f1f1f1; vertical-align: top; }
