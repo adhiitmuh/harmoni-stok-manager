@@ -17,6 +17,9 @@ Aturan kerja lintas app: lihat `harmoni-indonesia/CLAUDE.md`. Naikkan `?v=` di l
 - `po` — {supplier, tanggal, lama, perkiraan_datang, status:'dipesan'|'datang'|'batal', items:[{sku, nama, nama_sup, qty, harga}], total, terima[], nota_id}
 - `resep_custom/{id}` — {kata:'US KECIL, …', bahan:[{sku, nama, qty per pcs}]} bahan barang custom. Jenis custom (dari `penjualan_custom_ringkas/{YYYY-MM}` project harmoni-indonesia, ditulis Analitik tab 🧵) dicocokkan ke resep dengan kata kunci terpanjang yang terkandung di nama jenis; kebutuhan bahan/bln = rata-rata qty jenis (N bulan pilihan Belanja) × qty per pcs → ditambahkan ke laku/bln bahan di Daftar Belanja (tag 🧵). Kartu "🧵 Bahan barang custom" di halaman Belanja.
 
+## Pesanan outlet (project harmoni-indonesia `outlet_pesanan`)
+- Kartu "📥 Pesanan dari outlet" di Belanja: pesanan cabang/titik (dibuat di Analitik mode outlet) → Kirim (qty kirim, opsi kurangi stok gudang lalu toko HQ) / Tolak (alasan). Qty pesanan yang masih `diajukan` ditambahkan ke kebutuhan Daftar Belanja (tag 📥). Rules: staf HQ = akses harmoni_stok tanpa `apps.harmoni_analitik.outlet`.
+
 ## Sinkron dengan Analitik (project harmoni-indonesia `settings/*`)
 - Simpan stok / upload Olsera → `stok_fisik`; upload stok di Analitik → menulis `products` (hanya yang berubah; modal manual tidak ditimpa 0).
 - Dashboard / simpan HPP / supplier / kualitas → `modal_produk` (m, s, sup, h).

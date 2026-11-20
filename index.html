@@ -514,6 +514,11 @@
       </details>
     </div>
     <div class="card">
+      <div class="card-title">📥 Pesanan dari outlet <span id="pout-n" style="font-size:12px;color:#9a3412"></span></div>
+      <p style="font-size:12px;color:#666;margin-bottom:8px">Pesanan barang dari cabang/titik (dibuat outlet di Analitik → 📦 Stok & Pesan ke HQ). Qty yang belum dikirim otomatis ikut dihitung di Daftar Belanja (tanda 📥).</p>
+      <div id="pout-list"></div>
+    </div>
+    <div class="card">
       <div class="card-title">🧵 Bahan barang custom <span id="cu-n" style="font-size:12px;color:#5b21b6"></span></div>
       <p style="font-size:12px;color:#666;margin-bottom:8px">Penjualan barang custom (nama diketik kasir di Olsera) dibaca dari Analitik → tab 🧵 Barang Custom. Atur <b>bahan per 1 pcs</b> untuk tiap jenis (cth: US KECIL LIS MAGNET → papan US kecil ×1, magnet ×1). Kebutuhan bahan per bulan otomatis ditambahkan ke laku/bln bahan itu di Daftar Belanja (tanda 🧵).</p>
       <input id="cu-cari" type="search" placeholder="Cari jenis custom…" oninput="renderCustomBahan()" style="margin-bottom:8px">
