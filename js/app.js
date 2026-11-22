@@ -1624,6 +1624,34 @@ window.renderKalenderLaku = async () => {
     </table></div>${rows.length > 60 ? `<p style="font-size:11px;color:#666">Menampilkan 60 dari ${rows.length} barang terlaris.</p>` : ''}
     <p style="font-size:11px;color:#666;margin-top:4px">Angka = rata-rata pcs terjual di bulan itu (dari ${_riwayat.bulan.length} bulan data Analitik). Warna makin gelap = makin ramai.</p>`
 }
+// Deteksi musim otomatis: pola Jan–Des per kategori dari riwayat penjualan → kategori yang ramai di bulan tertentu
+function polaBulan(K) { const q = _riwayat.q[K]; if (!q) return null; const sum = new Array(13).fill(0), n = new Array(13).fill(0)
+  _riwayat.bulan.forEach((x, i) => { if (x[1]) { sum[x[1]] += +q[i] || 0; n[x[1]]++ } }); return sum.map((v, m) => m && n[m] ? v / n[m] : 0) }
+function puncakPola(g) { const tot = g.slice(1).reduce((t, v) => t + v, 0), rata = tot / 12; if (!tot) return null
+  const maxM = g.indexOf(Math.max(...g.slice(1)), 1), ramai = new Set([maxM])
+  for (const d of [-1, 1]) { let m = maxM; for (let k = 0; k < 3; k++) { m = ((m - 1 + d + 12) % 12) + 1; if (g[m] >= rata * 1.5) ramai.add(m); else break } }
+  const urut = [...ramai].sort((a, b) => ((a - maxM + 18) % 12) - ((b - maxM + 18) % 12)), porsi = urut.reduce((t, m) => t + g[m], 0) / tot
+  return { awal: urut[0], akhir: urut[urut.length - 1], bulan: urut, porsi, kali: g[maxM] / rata, tot } }
+window.deteksiMusim = async () => {
+  const box = document.getElementById('kl-hasil'); box.innerHTML = '<div class="loading"><div class="spinner"></div><span>Membaca semua data penjualan…</span></div>'
+  await muatLaku(); const prod = await produkSemua()
+  if (_riwayat.bulan.length < 12) { box.innerHTML = `<p style="font-size:12px;color:#b91c1c">Data penjualan baru ${_riwayat.bulan.length} bulan — perlu minimal 12 bulan untuk membaca musim.</p>`; return }
+  const kat = {}; prod.forEach(p => { const K = String(p.sku || p.id).toUpperCase(), pl = polaBulan(K); if (!pl || !p.category) return
+    const x = kat[p.category] = kat[p.category] || { g: new Array(13).fill(0), barang: [] }; pl.forEach((v, m) => { x.g[m] += v }); x.barang.push({ p, pl, tot: pl.reduce((t, v) => t + v, 0) }) })
+  const hasil = Object.entries(kat).map(([k, x]) => ({ k, ...x, pk: puncakPola(x.g) })).filter(x => x.pk && x.pk.tot >= 12 && x.pk.kali >= 1.8 && x.pk.porsi >= 0.3 && x.pk.bulan.length <= 4)
+    .sort((a, b) => b.pk.porsi * Math.log10(b.pk.tot + 1) - a.pk.porsi * Math.log10(a.pk.tot + 1))
+  const ada = new Set((_musim || []).map(m => String(m.kata || '').toUpperCase()))
+  window._klDeteksi = hasil
+  box.innerHTML = hasil.length ? `<p style="font-size:12px;color:#475569;margin-bottom:6px">Dari ${_riwayat.bulan.length} bulan data, ${hasil.length} kategori punya bulan ramai yang jelas. Porsi = bagian penjualan setahun yang terjadi di bulan ramai.</p>
+    <div style="overflow:auto;max-height:480px"><table class="tbl-cu"><tr><th>Kategori</th><th>Ramai</th><th>Siapkan mulai</th><th style="text-align:right">Porsi</th><th style="text-align:right">Puncak</th><th>Barang terlaris</th><th></th></tr>${hasil.map((x, i) => {
+      const siap = ((x.pk.awal - 1 - 10 + 24) % 12) + 1, top = x.barang.sort((a, b) => b.tot - a.tot).slice(0, 3).map(b => namaProduk(b.p)).join(', ')
+      return `<tr><td><b>${esc(x.k)}</b><div style="font-size:11px;color:#94a3b8">${x.barang.length} barang</div></td><td><b>${x.pk.bulan.map(m => BLN_P[m]).join(', ')}</b></td><td>${BLN_P[siap]} <span style="font-size:11px;color:#94a3b8">(10 bln)</span></td>
+        <td style="text-align:right">${Math.round(x.pk.porsi * 100)}%</td><td style="text-align:right">${x.pk.kali.toFixed(1)}× rata-rata</td><td style="font-size:12px;color:#475569">${esc(top)}</td>
+        <td style="white-space:nowrap"><button class="btn btn-secondary btn-sm" onclick="klLihatKategori(${i})">🗓️ Lihat</button> ${ada.has(x.k.toUpperCase()) ? '<span style="font-size:11px;color:#166534">✓ sudah musim</span>' : `<button class="btn btn-primary btn-sm" onclick="klMusimKategori(${i})">📅 Jadikan musim</button>`}</td></tr>` }).join('')}</table></div>`
+    : '<p style="font-size:12px;color:#666">Tidak ada kategori dengan bulan ramai yang jelas di data penjualan.</p>'
+}
+window.klLihatKategori = i => { const x = window._klDeteksi[i]; document.getElementById('kl-kata').value = ''; document.getElementById('kl-kat').value = x.k; renderKalenderLaku() }
+window.klMusimKategori = i => { const x = window._klDeteksi[i]; window._klUsul = { awal: x.pk.awal, akhir: x.pk.akhir, kata: x.k }; klJadikanMusim() }
 window.klJadikanMusim = () => { const u = window._klUsul; if (!u) return; resetFormMusim()
   const akhirTgl = new Date(2001, u.akhir, 0).getDate()
   Object.entries({ nama: u.kata, mulai: `${String(u.awal).padStart(2, '0')}-01`, selesai: `${String(u.akhir).padStart(2, '0')}-${akhirTgl}`, faktor: 1, ingat: 10, kata: u.kata, mode: 'tahunlalu', cat: 'Dari Kalender laku' }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)

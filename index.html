@@ -499,6 +499,7 @@
         <input id="kl-kata" placeholder="Kata kunci, pisah koma — cth: PASKIBRA" style="flex:2;min-width:180px" onkeydown="if(event.key==='Enter')renderKalenderLaku()">
         <select id="kl-kat" style="flex:1;min-width:150px"><option value="">Semua kategori</option></select>
         <button class="btn btn-primary" onclick="renderKalenderLaku()">🔍 Lihat kalender</button>
+        <button class="btn btn-secondary" onclick="deteksiMusim()">🤖 Deteksi musim otomatis</button>
       </div>
       <div id="kl-hasil"></div>
     </div>
@@ -659,7 +660,7 @@
 
 <div id="toast"></div>
 
-<script type="module" src="js/app.js?v=20261122c"></script>
+<script type="module" src="js/app.js?v=20261122d"></script>
 
 <script>
 const _fbCfg = {
