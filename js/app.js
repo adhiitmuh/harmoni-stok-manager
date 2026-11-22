@@ -1107,7 +1107,7 @@ window.keBelanja = keBelanja
 async function loadBelanja() {
   const b = lsGet('bl_budget', ''); if (b && !document.getElementById('bl-budget').value) document.getElementById('bl-budget').value = (+b).toLocaleString('id-ID')
   const o = lsGet('bl_opsi', null); if (o && !_bl) { document.getElementById('bl-bulan').value = o.bulan || '1'; document.getElementById('bl-mode').value = o.mode || 'rek'; document.getElementById('bl-final').checked = o.final !== false; document.getElementById('bl-rata').value = o.rata || '3'; document.getElementById('bl-tren').checked = o.tren !== false; window._blKat = o.kat || '' }
-  await Promise.all([loadPO(), muatMusim(), muatCustom(), muatPesananOutlet()]); await hitungBelanja(); renderMusim(); renderCustomBahan(); renderPesananOutlet()
+  await Promise.all([loadPO(), muatMusim(), muatCustom(), muatPesananOutlet()]); await hitungBelanja(); renderMusim(); renderCustomBahan(); renderPesananOutlet(); isiKategoriKalender()
 }
 window.formatBudget = el => { const v = el.value.replace(/\D/g, ''); el.value = v ? (+v).toLocaleString('id-ID') : ''; lsSet('bl_budget', v)
   clearTimeout(window._blT); window._blT = setTimeout(() => { if (_bl) aturBudget() }, 350) }
@@ -1207,7 +1207,13 @@ function rowBelanja(r) {
   return `<div class="bl-item${r.keluar ? ' keluar' : ''}">
     <input type="checkbox" ${r.keluar ? '' : 'checked'} title="Ikut dibeli" onchange="blKeluar('${K}', !this.checked)" style="width:18px;height:18px;margin-top:2px">
     <div style="min-width:0"><b>${esc(namaProduk(r.p))}</b>${tag}
-      <div class="bl-sub">${esc(r.K)} · stok ${num(r.stok)} <span style="color:#64748b">(🏪 toko ${num(stokToko(r.p))} · 📦 gudang ${num(stokGudang(r.p))})</span> · laku ${r.L}/bln${r.an ? ` <span title="rata-rata 3 / 6 / 12 bulan">(${r.an.r3} / ${r.an.r6} / ${r.an.r12})</span>${r.an.arah === 'naik' ? ` <b style="color:#166534">↑${r.an.pct}%</b>` : r.an.arah === 'turun' ? ` <b style="color:#b91c1c">↓${Math.abs(r.an.pct)}%</b>` : ''} · terjual 3/6/12 bln <b>${num(r.an.t3)} / ${num(r.an.t6)} / ${num(r.an.t12)}</b> pcs${isOwnerSM() && r.jual ? ` · omzet 12 bln ≈ <b>${rpS(r.an.t12 * r.jual)}</b>` : ''}` : ''}${r.dipesan ? ' · sudah di-PO ' + num(r.dipesan) : ''}${r.jual ? ' · jual ' + rpS(r.jual) : ''}${r.untung > 0 ? ' · untung ' + rpS(r.untung) + '/pcs' : ''}</div></div>
+      <div class="bl-sku">${esc(r.K)}${r.p.category ? ' · ' + esc(r.p.category) : ''}</div>
+      <div class="bl-stat">
+        <div><span>Stok</span><b class="${r.stok <= 0 ? 'merah' : ''}">${num(r.stok)}</b><i>🏪 ${num(stokToko(r.p))} · 📦 ${num(stokGudang(r.p))}${r.dipesan ? ' · PO ' + num(r.dipesan) : ''}</i></div>
+        <div><span>Laku/bln</span><b>${r.L}${r.an?.arah === 'naik' ? ` <em class="naik">↑${r.an.pct}%</em>` : r.an?.arah === 'turun' ? ` <em class="turun">↓${Math.abs(r.an.pct)}%</em>` : ''}</b><i>${r.an ? `rata 3/6/12: ${r.an.r3} / ${r.an.r6} / ${r.an.r12}` : 'dari Analitik'}</i></div>
+        ${r.an ? `<div><span>Terjual 3/6/12 bln</span><b>${num(r.an.t3)} / ${num(r.an.t6)} / ${num(r.an.t12)}</b><i>pcs${isOwnerSM() && r.jual ? ` · omzet 12 bln ${rpS(r.an.t12 * r.jual)}` : ''}</i></div>` : ''}
+        <div><span>Harga jual</span><b>${r.jual ? rpS(r.jual) : '—'}</b><i>${r.untung > 0 ? 'untung ' + rpS(r.untung) + '/pcs' : r.beli > 0 && r.jual > 0 ? 'tidak untung' : ''}</i></div>
+      </div></div>
     <div style="text-align:right;white-space:nowrap"><b>${rpS(q * r.beli)}</b></div>
     <div class="bl-atur"><select onchange="blSup('${K}', this.value)" ${r.opsi.length ? '' : 'disabled'}>${opsi}</select>
       <span style="white-space:nowrap">qty <input type="number" min="0" inputmode="numeric" value="${q}" onchange="blQty('${K}', this.value)"> × ${r.beli ? rpS(r.beli) : '<span style="color:#b91c1c">modal ?</span>'}</span>
@@ -1399,22 +1405,24 @@ function faktorMusim(p) { let best = null; (_musim || []).forEach(m => { const s
 function terjualMusimLalu(K, m) { const q = _riwayat.q[K]; if (!q) return 0; const set = setBulanMusim(m.mulai, m.selesai), n = _riwayat.bulan.length
   let t = 0; _riwayat.bulan.forEach((x, i) => { if (i >= n - 12 && set.has(x[1])) t += +q[i] || 0 }); return t }
 
+// Isian form dalam bulan; disimpan dalam minggu (field `ingat`)
+const mgKeBln = w => Math.max(1, Math.round((+w || 8) / 4.345)), blnKeMg = b => Math.max(1, Math.round((+b || 2) * 4.345))
 const TEMPLATE_MUSIM = {
-  ajaran: { nama: 'Tahun ajaran baru', mulai: '06-01', selesai: '07-31', faktor: 1, ingat: 34, mode: 'tahunlalu', kata: 'SEKOLAH, SERAGAM, SD, SMP, SMA, DASI, TOPI', catatan: 'Seragam & atribut sekolah' },
+  ajaran: { nama: 'Tahun ajaran baru', mulai: '06-01', selesai: '07-31', faktor: 1, ingat: 43, mode: 'tahunlalu', kata: 'SEKOLAH, SERAGAM, SD, SMP, SMA, DASI, TOPI', catatan: 'Seragam & atribut sekolah' },
   paskibra: { nama: '17 Agustus / Paskibra', mulai: '07-15', selesai: '08-20', faktor: 2, ingat: 8, kata: 'PASKIBRA, PDU, MERAH PUTIH', catatan: 'Atribut Paskibra & upacara' },
 }
-window.isiTemplateMusim = k => { const t = TEMPLATE_MUSIM[k]; resetFormMusim(); Object.entries({ nama: t.nama, mulai: t.mulai, selesai: t.selesai, faktor: t.faktor, ingat: t.ingat, kata: t.kata, cat: t.catatan, mode: t.mode || 'faktor' }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)
+window.isiTemplateMusim = k => { const t = TEMPLATE_MUSIM[k]; resetFormMusim(); Object.entries({ nama: t.nama, mulai: t.mulai, selesai: t.selesai, faktor: t.faktor, ingat: mgKeBln(t.ingat), kata: t.kata, cat: t.catatan, mode: t.mode || 'faktor' }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)
   toast('Template diisi — sesuaikan tanggal & kata kunci, lalu simpan'); document.getElementById('ms-form').open = true }
-window.resetFormMusim = () => { ['nama', 'mulai', 'selesai', 'kata', 'cat'].forEach(f => document.getElementById('ms-' + f).value = ''); document.getElementById('ms-faktor').value = 2; document.getElementById('ms-ingat').value = 8; document.getElementById('ms-mode').value = 'faktor'
+window.resetFormMusim = () => { ['nama', 'mulai', 'selesai', 'kata', 'cat'].forEach(f => document.getElementById('ms-' + f).value = ''); document.getElementById('ms-faktor').value = 2; document.getElementById('ms-ingat').value = 2; document.getElementById('ms-mode').value = 'faktor'
   document.getElementById('ms-id').value = ''; document.getElementById('ms-usul').innerHTML = ''; window._msSku = [] }
 window.ubahMusim = id => { const m = _musim.find(x => x.id === id); if (!m) return; resetFormMusim()
-  Object.entries({ nama: m.nama, mulai: m.mulai, selesai: m.selesai, faktor: m.faktor, ingat: m.ingat, kata: m.kata || '', cat: m.catatan || '', mode: m.mode || 'faktor' }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)
+  Object.entries({ nama: m.nama, mulai: m.mulai, selesai: m.selesai, faktor: m.faktor, ingat: mgKeBln(m.ingat), kata: m.kata || '', cat: m.catatan || '', mode: m.mode || 'faktor' }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)
   document.getElementById('ms-id').value = id; window._msSku = [...(m.sku || [])]; renderSkuMusim(); const f = document.getElementById('ms-form'); f.open = true; f.scrollIntoView({ behavior: 'smooth' }) }
 const mmdd = v => { const m = String(v || '').trim().match(/^(\d{1,2})[-\/](\d{1,2})$/); if (!m) return ''; const b = +m[1], d = +m[2]; return b >= 1 && b <= 12 && d >= 1 && d <= 31 ? `${String(b).padStart(2, '0')}-${String(d).padStart(2, '0')}` : '' }
 window.simpanMusim = async () => {
   const v = f => document.getElementById('ms-' + f).value.trim(), nama = v('nama'), mulai = mmdd(v('mulai')), selesai = mmdd(v('selesai'))
   if (!nama) return toast('Nama musim wajib diisi', 'error'); if (!mulai || !selesai) return toast('Isi tanggal mulai & selesai dengan format BB-TT, cth 07-15', 'error')
-  const faktor = Math.max(1, +v('faktor') || 1), ingat = Math.max(1, parseInt(v('ingat')) || 8), sku = window._msSku || []
+  const faktor = Math.max(1, +v('faktor') || 1), ingat = blnKeMg(v('ingat')), sku = window._msSku || []
   if (!v('kata') && !sku.length) return toast('Isi kata kunci barang, atau pilih barang dari "Cari dari data penjualan"', 'error')
   const id = v('id') || idSup(nama)
   try { await setDoc(doc(db, 'musim', id), { nama, mulai, selesai, faktor, ingat, mode: v('mode') || 'faktor', kata: v('kata'), sku, catatan: v('cat'), oleh: window._harmoniUserName || '', updated_at: serverTimestamp() })
@@ -1429,7 +1437,7 @@ function renderMusim() {
   document.getElementById('ms-n').textContent = list.filter(x => x.st.aktif).length ? `· ${list.filter(x => x.st.aktif).length} sedang berlaku` : ''
   box.innerHTML = list.length ? list.map(({ m, st }) => { const n = prod.length ? prod.filter(p => cocokMusim(m, p)).length : null
     return `<div class="po-kartu" style="${st.aktif ? 'border-color:#fcd34d;background:#fffbeb' : ''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-      <div><b>📅 ${esc(m.nama)}</b> <span style="font-size:12px;color:#666">${tglPendek('2000-' + m.mulai)} – ${tglPendek('2000-' + m.selesai)} · ${m.mode === 'tahunlalu' ? 'siapkan total terjual musim tahun lalu' + (+m.faktor > 1 ? ' ×' + m.faktor : '') : 'laku ×' + m.faktor} · disiapkan ${m.ingat || 8} minggu (±${Math.round((m.ingat || 8) / 4.3)} bln) sebelumnya</span>
+      <div><b>📅 ${esc(m.nama)}</b> <span style="font-size:12px;color:#666">${tglPendek('2000-' + m.mulai)} – ${tglPendek('2000-' + m.selesai)} · ${m.mode === 'tahunlalu' ? 'siapkan total terjual musim tahun lalu' + (+m.faktor > 1 ? ' ×' + m.faktor : '') : 'laku ×' + m.faktor} · disiapkan ±${mgKeBln(m.ingat)} bulan sebelumnya</span>
         <div style="font-size:12px;font-weight:700;color:${st.aktif ? '#92400e' : '#475569'};margin-top:2px">${st.label}</div>
         <div style="font-size:11px;color:#666;margin-top:2px">${m.kata ? 'Kata kunci: ' + esc(m.kata) : ''}${m.sku?.length ? `${m.kata ? ' · ' : ''}${m.sku.length} barang dipilih` : ''}${n != null ? ` · <b>${n} barang cocok</b>` : ''}${m.catatan ? ' · ' + esc(m.catatan) : ''}</div></div>
       <div style="display:flex;gap:6px;align-items:start"><button class="btn btn-secondary btn-sm" onclick="ubahMusim('${jsStr(m.id)}')">✏️ Ubah</button><button class="btn btn-sm" style="background:#f1f5f9;color:#475569" onclick="hapusMusim('${jsStr(m.id)}')">Hapus</button></div></div></div>` }).join('')
@@ -1579,6 +1587,45 @@ window.tolakPesananOutlet = async id => {
   try { await hiDb().collection('outlet_pesanan').doc(id).update({ status: 'ditolak', alasan: alasan.trim(), ditolak_at: firebase.firestore.FieldValue.serverTimestamp(), ditolak_oleh: window._harmoniUserName || '' })
     toast('Pesanan ditolak'); await muatPesananOutlet(true); renderPesananOutlet(); if (_bl) hitungBelanja() } catch (e) { toast('Gagal: ' + e.message, 'error') }
 }
+
+// ── Kalender laku: pola laku Jan–Des per kata kunci / kategori (rata-rata tiap bulan kalender dari riwayat Analitik) ──
+const BLN_P = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+window.renderKalenderLaku = async () => {
+  const box = document.getElementById('kl-hasil'); if (!box) return
+  const kataIn = document.getElementById('kl-kata').value.trim(), kat = document.getElementById('kl-kat').value
+  const kata = kataIn.toUpperCase().split(',').map(t => t.trim()).filter(Boolean)
+  if (!kata.length && !kat) { box.innerHTML = '<p style="font-size:12px;color:#666">Ketik kata kunci (cth: PASKIBRA, PRAMUKA, KARNAVAL) atau pilih kategori.</p>'; return }
+  box.innerHTML = '<div class="loading"><div class="spinner"></div><span>Membaca riwayat penjualan…</span></div>'
+  await muatLaku(); const prod = await produkSemua()
+  const cocok = prod.filter(p => { const t = (namaProduk(p) + ' ' + (p.category || '')).toUpperCase(); return (!kat || p.category === kat) && (!kata.length || kata.some(k => t.includes(k))) })
+  const pola = K => { const q = _riwayat.q[K]; if (!q) return null; const sum = new Array(13).fill(0), n = new Array(13).fill(0)
+    _riwayat.bulan.forEach((x, i) => { if (x[1]) { sum[x[1]] += +q[i] || 0; n[x[1]]++ } }); return sum.map((v, m) => m && n[m] ? v / n[m] : 0) }
+  const rows = cocok.map(p => { const K = String(p.sku || p.id).toUpperCase(), pl = pola(K); return pl ? { p, K, pl, tot: pl.reduce((t, v) => t + v, 0) } : null }).filter(x => x && x.tot > 0).sort((a, b) => b.tot - a.tot)
+  if (!rows.length) { box.innerHTML = `<p style="font-size:12px;color:#666">${cocok.length} barang cocok, tapi belum ada riwayat penjualannya (${_riwayat.bulan.length} bulan data).</p>`; return }
+  const grup = new Array(13).fill(0); rows.forEach(r => r.pl.forEach((v, m) => { grup[m] += v }))
+  const rata = grup.slice(1).reduce((t, v) => t + v, 0) / 12
+  // Puncak: bulan tertinggi + bulan tetangga yang ≥ 1,5× rata-rata
+  const maxM = grup.indexOf(Math.max(...grup.slice(1)), 1), ramai = new Set([maxM])
+  for (const d of [-1, 1]) { let m = maxM; for (let k = 0; k < 5; k++) { m = ((m - 1 + d + 12) % 12) + 1; if (grup[m] >= rata * 1.5) ramai.add(m); else break } }
+  const urut = [...ramai].sort((a, b) => ((a - maxM + 18) % 12) - ((b - maxM + 18) % 12)), awal = urut[0], akhir = urut[urut.length - 1]
+  const siapBln = ((awal - 1 - 10 + 24) % 12) + 1
+  window._klUsul = { awal, akhir, kata: kataIn || kat }
+  const sel = (v, mx) => { const a = mx ? v / mx : 0; return `background:rgba(3,69,67,${(a * 0.85).toFixed(2)});color:${a > 0.5 ? '#fff' : '#0f172a'}` }
+  const mxG = Math.max(...grup.slice(1))
+  box.innerHTML = `<div class="kl-ringkas">🔥 Paling laku: <b>${urut.map(m => BLN_P[m]).join(', ')}</b> · 📦 mulai siapkan stok sekitar <b>${BLN_P[siapBln]}</b> (10 bulan sebelum ${BLN_P[awal]}) · ${rows.length} barang · rata-rata ${Math.round(rata)} pcs/bln, puncak ${Math.round(mxG)} pcs/bln
+      <button class="btn btn-primary btn-sm" style="margin-left:6px" onclick="klJadikanMusim()">📅 Jadikan musim</button></div>
+    <div style="overflow:auto;max-height:420px"><table class="tbl-kl"><tr><th>Barang</th>${BLN_P.slice(1).map(b => `<th>${b}</th>`).join('')}<th>Total/thn</th></tr>
+      <tr class="kl-total"><td>Semua (${rows.length})</td>${grup.slice(1).map(v => `<td style="${sel(v, mxG)}">${Math.round(v)}</td>`).join('')}<td>${Math.round(grup.reduce((t, v) => t + v, 0))}</td></tr>
+      ${rows.slice(0, 60).map(r => { const mx = Math.max(...r.pl.slice(1)); return `<tr><td title="${esc(r.K)}">${esc(namaProduk(r.p))}</td>${r.pl.slice(1).map(v => `<td style="${sel(v, mx)}">${v ? Math.round(v * 10) / 10 : ''}</td>`).join('')}<td><b>${Math.round(r.tot)}</b></td></tr>` }).join('')}
+    </table></div>${rows.length > 60 ? `<p style="font-size:11px;color:#666">Menampilkan 60 dari ${rows.length} barang terlaris.</p>` : ''}
+    <p style="font-size:11px;color:#666;margin-top:4px">Angka = rata-rata pcs terjual di bulan itu (dari ${_riwayat.bulan.length} bulan data Analitik). Warna makin gelap = makin ramai.</p>`
+}
+window.klJadikanMusim = () => { const u = window._klUsul; if (!u) return; resetFormMusim()
+  const akhirTgl = new Date(2001, u.akhir, 0).getDate()
+  Object.entries({ nama: u.kata, mulai: `${String(u.awal).padStart(2, '0')}-01`, selesai: `${String(u.akhir).padStart(2, '0')}-${akhirTgl}`, faktor: 1, ingat: 10, kata: u.kata, mode: 'tahunlalu', cat: 'Dari Kalender laku' }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)
+  const f = document.getElementById('ms-form'); f.open = true; f.scrollIntoView({ behavior: 'smooth' }); toast('Form musim terisi — cek lalu Simpan musim') }
+async function isiKategoriKalender() { const sel = document.getElementById('kl-kat'); if (!sel || sel.dataset.isi) return; const prod = await produkSemua()
+  const kats = [...new Set(prod.map(p => p.category).filter(Boolean))].sort(); sel.innerHTML = '<option value="">Semua kategori</option>' + kats.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join(''); sel.dataset.isi = '1' }
 
 // Cari barang yang penjualannya naik di bulan-bulan musim (dari riwayat penjualan Analitik)
 window.cariBarangMusim = async () => {

@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
   <meta name="theme-color" content="#034543">
   <title>Harmoni Stok Manager</title>
-  <link rel="stylesheet" href="css/style.css?v=20261120a">
+  <link rel="stylesheet" href="css/style.css?v=20261122b">
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
@@ -493,6 +493,16 @@
     <div id="bl-ringkas"></div>
     <div id="bl-hasil"></div>
     <div class="card">
+      <div class="card-title">🗓️ Kalender laku — barang ramai di bulan apa?</div>
+      <p style="font-size:12px;color:#666;margin-bottom:8px">Cari per kata kunci atau kategori (cth: <b>PASKIBRA</b>, <b>PRAMUKA</b>, <b>KARNAVAL</b>, <b>SERAGAM SD</b>) untuk melihat pola laku Jan–Des dan kapan harus mulai menyiapkan stok.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <input id="kl-kata" placeholder="Kata kunci, pisah koma — cth: PASKIBRA" style="flex:2;min-width:180px" onkeydown="if(event.key==='Enter')renderKalenderLaku()">
+        <select id="kl-kat" style="flex:1;min-width:150px"><option value="">Semua kategori</option></select>
+        <button class="btn btn-primary" onclick="renderKalenderLaku()">🔍 Lihat kalender</button>
+      </div>
+      <div id="kl-hasil"></div>
+    </div>
+    <div class="card">
       <div class="card-title">📅 Kalender musim <span id="ms-n" style="font-size:12px;color:#92400e"></span></div>
       <p style="font-size:12px;color:#666;margin-bottom:10px">Musim berulang tiap tahun. Mulai beberapa minggu sebelum musim, laku barang terkait otomatis dinaikkan di Daftar Belanja (dan muncul pengingat di Dashboard) supaya stok siap sebelum ramai.</p>
       <div id="ms-list"></div>
@@ -505,7 +515,7 @@
           <div class="form-group" style="margin:0"><label>Selesai (BB-TT) *</label><input id="ms-selesai" placeholder="08-20" inputmode="numeric"></div>
           <div class="form-group" style="margin:0;grid-column:span 2;min-width:0"><label>Cara hitung</label><select id="ms-mode"><option value="faktor">Laku/bln dinaikkan ×faktor</option><option value="tahunlalu">Siapkan total terjual musim tahun lalu (seragam sekolah)</option></select></div>
           <div class="form-group" style="margin:0"><label>Faktor (×)</label><input id="ms-faktor" type="number" min="1" step="0.1" value="2" title="Mode tahun lalu: 1 = sama dengan tahun lalu, 1.2 = target naik 20%"></div>
-          <div class="form-group" style="margin:0"><label>Mulai disiapkan (minggu sebelum)</label><input id="ms-ingat" type="number" min="1" value="8" title="8 bulan ≈ 34 minggu"></div>
+          <div class="form-group" style="margin:0"><label>Mulai disiapkan (bulan sebelum)</label><input id="ms-ingat" type="number" min="1" max="11" value="2" title="cth seragam sekolah: 10 bulan sebelum kenaikan kelas"></div>
         </div>
         <div class="form-group" style="margin:10px 0 0"><label>Kata kunci barang <span style="color:#999">(pisah koma — dicari di nama & kategori)</span></label><input id="ms-kata" placeholder="cth: PASKIBRA, PDU, MERAH PUTIH"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="cariBarangMusim()">🔍 Cari dari data penjualan</button><span id="ms-sku-n" style="font-size:12px;color:#166534;font-weight:700"></span></div>
@@ -649,7 +659,7 @@
 
 <div id="toast"></div>
 
-<script type="module" src="js/app.js?v=20261122a"></script>
+<script type="module" src="js/app.js?v=20261122b"></script>
 
 <script>
 const _fbCfg = {
