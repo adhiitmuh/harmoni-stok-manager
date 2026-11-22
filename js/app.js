@@ -1176,7 +1176,7 @@ function aturBudget() {
     const qty = ub.qty != null ? ub.qty : usul
     const kondisi = it.stok <= 0 ? 'kosong' : it.stok < it.L / 30 * Math.max(lama, 7) ? 'kritis' : 'isi'
     const untung = jual > 0 && beli > 0 ? jual - beli : 0
-    const roi = beli > 0 && qty > 0 ? untung * Math.min(qty, Math.max(it.L, 1) * _bl.bulan) / (beli * qty) : 0   // untung per Rp modal
+    const qRoi = Math.max(usul, 1), roi = beli > 0 ? untung * Math.min(qRoi, Math.max(it.L, 1) * _bl.bulan) / (beli * qRoi) : 0   // untung per Rp modal — dari usulan, supaya urutan tidak melompat saat qty diubah manual
     const tier = untung <= 0 ? 0 : kondisi === 'kosong' ? 3 : kondisi === 'kritis' ? 2 : 1
     return { ...it, totMusim, s, lama, beli, jual, untung, usul, qty, manual: ub.qty != null, keluar: !!ub.keluar, kondisi, roi, tier: tier + (mu && tier ? 0.5 : 0), mu, ambil: 0, status: '' }
   }).filter(r => r.qty > 0 || r.manual)
@@ -1188,7 +1188,7 @@ function aturBudget() {
     if (biaya <= sisa) { r.ambil = r.qty; sisa -= biaya; r.status = 'masuk' }
     else if (!r.manual && Math.floor(sisa / r.beli) >= 1) { r.ambil = Math.floor(sisa / r.beli); sisa -= r.ambil * r.beli; r.status = 'sebagian' }
     else r.status = 'luar' })
-  rows.filter(r => r.keluar).forEach(r => r.status = 'keluar')
+  rows.filter(r => r.keluar || (r.manual && !(r.qty > 0))).forEach(r => r.status = 'keluar')   // qty 0 manual → bagian Tidak ikut dibeli
   _bl.rows = rows
   renderBelanja(B, sisa)
 }
@@ -1204,7 +1204,7 @@ function rowBelanja(r) {
   const opsi = r.opsi.length ? r.opsi.map(o => `<option value="${esc(o.n)}"${o.n === r.s?.n ? ' selected' : ''}>${o.n === r.p.supplier ? '⭐ ' : ''}${esc(o.n)} · ${o.harga ? rpS(o.harga) : 'harga ?'}${o.lama ? ' · ' + o.lama + ' hr' : ''}${o.kual ? ' · ' + '★'.repeat(o.kual) : ''}${o.jenis === 'penawaran' ? ' · penawaran' : o.jenis === 'catatan' ? ' · catatan' : ''}</option>`).join('')
     : '<option value="">— belum ada supplier & harga —</option>'
   const q = r.status === 'masuk' || r.status === 'sebagian' ? r.ambil : r.qty
-  return `<div class="bl-item${r.keluar ? ' keluar' : ''}">
+  return `<div class="bl-item${r.keluar || r.status === 'keluar' ? ' keluar' : ''}" data-k="${esc(r.K)}">
     <input type="checkbox" ${r.keluar ? '' : 'checked'} title="Ikut dibeli" onchange="blKeluar('${K}', !this.checked)" style="width:18px;height:18px;margin-top:2px">
     <div style="min-width:0"><b>${esc(namaProduk(r.p))}</b>${tag}
       <div class="bl-sku">${esc(r.K)}${r.p.category ? ' · ' + esc(r.p.category) : ''}</div>
@@ -1257,9 +1257,13 @@ function renderBelanja(B, sisa) {
     + lipat('🚫 Tidak ikut dibeli', keluar, 'Centang lagi untuk memasukkan kembali.')
 }
 const ubahBl = (K, v) => { _bl.ubah[K] = { ..._bl.ubah[K], ...v }; Object.keys(_bl.ubah[K]).forEach(k => _bl.ubah[K][k] == null && delete _bl.ubah[K][k]); lsSet('bl_ubah', _bl.ubah); aturBudget() }
-window.blKeluar = (K, v) => ubahBl(K, { keluar: v || null })
-window.blSup = (K, n) => ubahBl(K, { sup: n || null })
-window.blQty = (K, v) => { const r = _bl.rows.find(x => x.K === K), q = Math.max(0, parseInt(v) || 0); ubahBl(K, { qty: r && q === r.usul ? null : q }) }
+window.blKeluar = (K, v) => { ubahBl(K, { keluar: v || null }); tetapDiBarang(K) }
+window.blSup = (K, n) => { ubahBl(K, { sup: n || null }); tetapDiBarang(K) }
+window.blQty = (K, v) => { const r = _bl.rows.find(x => x.K === K), q = Math.max(0, parseInt(v) || 0); ubahBl(K, { qty: r && q === r.usul ? null : q }); tetapDiBarang(K) }
+// Setelah daftar digambar ulang: tetap di barang yang baru diubah + sorot sebentar
+function tetapDiBarang(K) { const el = [...document.querySelectorAll('#bl-hasil .bl-item')].find(x => x.dataset.k === K); if (!el) return
+  const d = el.closest('details'); if (d) d.open = true
+  el.scrollIntoView({ block: 'center' }); el.style.transition = 'background .6s'; el.style.background = '#fef9c3'; setTimeout(() => { el.style.background = '' }, 1200) }
 window.resetBelanja = () => { if (_bl) { _bl.ubah = {}; lsSet('bl_ubah', {}); aturBudget(); toast('Usulan awal dikembalikan') } }
 
 // Pesan PO memakai nama barang versi supplier (nama di nota mereka) supaya mudah dikenali
