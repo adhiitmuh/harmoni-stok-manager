@@ -503,8 +503,9 @@
           <div class="form-group" style="margin:0;grid-column:span 2;min-width:0"><label>Nama musim *</label><input id="ms-nama" placeholder="cth: Diklat satpam gelombang 1"></div>
           <div class="form-group" style="margin:0"><label>Mulai (BB-TT) *</label><input id="ms-mulai" placeholder="07-15" inputmode="numeric"></div>
           <div class="form-group" style="margin:0"><label>Selesai (BB-TT) *</label><input id="ms-selesai" placeholder="08-20" inputmode="numeric"></div>
-          <div class="form-group" style="margin:0"><label>Laku naik (×)</label><input id="ms-faktor" type="number" min="1" step="0.5" value="2"></div>
-          <div class="form-group" style="margin:0"><label>Ingatkan (minggu sebelum)</label><input id="ms-ingat" type="number" min="1" value="8"></div>
+          <div class="form-group" style="margin:0;grid-column:span 2;min-width:0"><label>Cara hitung</label><select id="ms-mode"><option value="faktor">Laku/bln dinaikkan ×faktor</option><option value="tahunlalu">Siapkan total terjual musim tahun lalu (seragam sekolah)</option></select></div>
+          <div class="form-group" style="margin:0"><label>Faktor (×)</label><input id="ms-faktor" type="number" min="1" step="0.1" value="2" title="Mode tahun lalu: 1 = sama dengan tahun lalu, 1.2 = target naik 20%"></div>
+          <div class="form-group" style="margin:0"><label>Mulai disiapkan (minggu sebelum)</label><input id="ms-ingat" type="number" min="1" value="8" title="8 bulan ≈ 34 minggu"></div>
         </div>
         <div class="form-group" style="margin:10px 0 0"><label>Kata kunci barang <span style="color:#999">(pisah koma — dicari di nama & kategori)</span></label><input id="ms-kata" placeholder="cth: PASKIBRA, PDU, MERAH PUTIH"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="cariBarangMusim()">🔍 Cari dari data penjualan</button><span id="ms-sku-n" style="font-size:12px;color:#166534;font-weight:700"></span></div>
@@ -648,7 +649,7 @@
 
 <div id="toast"></div>
 
-<script type="module" src="js/app.js"></script>
+<script type="module" src="js/app.js?v=20261122a"></script>
 
 <script>
 const _fbCfg = {
