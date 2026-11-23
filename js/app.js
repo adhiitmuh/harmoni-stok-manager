@@ -1107,7 +1107,7 @@ window.keBelanja = keBelanja
 async function loadBelanja() {
   const b = lsGet('bl_budget', ''); if (b && !document.getElementById('bl-budget').value) document.getElementById('bl-budget').value = (+b).toLocaleString('id-ID')
   const o = lsGet('bl_opsi', null); if (o && !_bl) { document.getElementById('bl-bulan').value = o.bulan || '1'; document.getElementById('bl-mode').value = o.mode || 'rek'; document.getElementById('bl-final').checked = o.final !== false; document.getElementById('bl-rata').value = o.rata || '3'; document.getElementById('bl-tren').checked = o.tren !== false; window._blKat = o.kat || '' }
-  await Promise.all([loadPO(), muatMusim(), muatCustom(), muatPesananOutlet()]); await hitungBelanja(); renderMusim(); renderCustomBahan(); renderPesananOutlet(); isiKategoriKalender()
+  await Promise.all([loadPO(), muatMusim(), muatCustom(), muatPesananOutlet()]); await hitungBelanja(); renderMusim(); renderCustomBahan(); renderPesananOutlet(); isiKategoriKalender(); isiTemplateAcara()
 }
 window.formatBudget = el => { const v = el.value.replace(/\D/g, ''); el.value = v ? (+v).toLocaleString('id-ID') : ''; lsSet('bl_budget', v)
   clearTimeout(window._blT); window._blT = setTimeout(() => { if (_bl) aturBudget() }, 350) }
@@ -1410,12 +1410,22 @@ function terjualMusimLalu(K, m) { const q = _riwayat.q[K]; if (!q) return 0; con
   let t = 0; _riwayat.bulan.forEach((x, i) => { if (i >= n - 12 && set.has(x[1])) t += +q[i] || 0 }); return t }
 
 // Isian form dalam bulan; disimpan dalam minggu (field `ingat`)
-const mgKeBln = w => Math.max(1, Math.round((+w || 8) / 4.345)), blnKeMg = b => Math.max(1, Math.round((+b || 2) * 4.345))
+const mgKeBln = w => Math.max(0.5, Math.round((+w || 8) / 4.345 * 2) / 2), blnKeMg = b => Math.max(2, Math.round((+b || 2) * 4.345))   // kelipatan ½ bulan; ½ bulan = 2 minggu
+// Template acara bertanggal tetap (ingat dalam minggu: 2 mgg ≈ 0,5 bln, 1 bln ≈ 4 mgg). Mode faktor = laku/bln × faktor; tahunlalu = total musim lalu.
 const TEMPLATE_MUSIM = {
-  ajaran: { nama: 'Tahun ajaran baru', mulai: '06-01', selesai: '07-31', faktor: 1, ingat: 43, mode: 'tahunlalu', kata: 'SEKOLAH, SERAGAM, SD, SMP, SMA, DASI, TOPI', catatan: 'Seragam & atribut sekolah' },
-  paskibra: { nama: '17 Agustus / Paskibra', mulai: '07-15', selesai: '08-20', faktor: 2, ingat: 8, kata: 'PASKIBRA, PDU, MERAH PUTIH', catatan: 'Atribut Paskibra & upacara' },
+  ajaran: { ikon: '🎒', nama: 'Tahun ajaran baru', mulai: '06-01', selesai: '07-31', faktor: 1, ingat: 43, mode: 'tahunlalu', kata: 'SEKOLAH, SERAGAM, SD, SMP, SMA, DASI, TOPI', catatan: 'Seragam & atribut sekolah' },
+  paskibra: { ikon: '🇮🇩', nama: '17 Agustus / Paskibra', mulai: '07-15', selesai: '08-20', faktor: 1, ingat: 17, mode: 'tahunlalu', kata: 'PASKIBRA, PDU, MERAH PUTIH, BENDERA', catatan: 'Atribut Paskibra & upacara' },
+  pramuka: { ikon: '⚜️', nama: 'Hari Pramuka (14 Agustus)', mulai: '08-01', selesai: '08-14', faktor: 1, ingat: 9, mode: 'tahunlalu', kata: 'PRAMUKA, BARET, KACU, RIM', catatan: 'Atribut & seragam pramuka' },
+  guru: { ikon: '👩‍🏫', nama: 'Hari Guru & HUT PGRI (25 Nov)', mulai: '11-10', selesai: '11-29', faktor: 1, ingat: 4, mode: 'tahunlalu', kata: 'PGRI, GURU', catatan: 'Batik/baju PGRI, Porsenijar s.d. ±29 Nov' },
+  korpri: { ikon: '🏛️', nama: 'HUT KORPRI (29 Nov)', mulai: '11-15', selesai: '11-29', faktor: 1, ingat: 4, mode: 'tahunlalu', kata: 'KORPRI', catatan: 'Baju & pin KORPRI' },
+  kartini: { ikon: '🌺', nama: 'Hari Kartini (21 Apr)', mulai: '04-10', selesai: '04-21', faktor: 1, ingat: 4, mode: 'tahunlalu', kata: 'KEBAYA, KARTINI, BAJU ADAT, KARNAVAL', catatan: 'Baju adat & karnaval sekolah' },
+  batik: { ikon: '🪡', nama: 'Hari Batik Nasional (2 Okt)', mulai: '09-25', selesai: '10-02', faktor: 1, ingat: 2, mode: 'tahunlalu', kata: 'BATIK', catatan: '' },
+  santri: { ikon: '🕌', nama: 'Hari Santri (22 Okt)', mulai: '10-10', selesai: '10-22', faktor: 1, ingat: 4, mode: 'tahunlalu', kata: 'SANTRI, SARUNG, PECI, KOKO', catatan: '' },
+  tni: { ikon: '🎖️', nama: 'HUT TNI (5 Okt)', mulai: '09-25', selesai: '10-05', faktor: 1, ingat: 4, mode: 'tahunlalu', kata: 'TNI, LORENG, PDL, BARET', catatan: 'Atribut TNI' },
+  bhayangkara: { ikon: '🚓', nama: 'Hari Bhayangkara (1 Jul)', mulai: '06-20', selesai: '07-01', faktor: 1, ingat: 4, mode: 'tahunlalu', kata: 'POLRI, POLISI, BHAYANGKARA', catatan: '' },
+  sumpah: { ikon: '🎤', nama: 'Sumpah Pemuda (28 Okt)', mulai: '10-15', selesai: '10-28', faktor: 1, ingat: 2, mode: 'tahunlalu', kata: 'BAJU ADAT, KARNAVAL, MERAH PUTIH', catatan: 'Lomba & karnaval' },
 }
-window.isiTemplateMusim = k => { const t = TEMPLATE_MUSIM[k]; resetFormMusim(); Object.entries({ nama: t.nama, mulai: t.mulai, selesai: t.selesai, faktor: t.faktor, ingat: mgKeBln(t.ingat), kata: t.kata, cat: t.catatan, mode: t.mode || 'faktor' }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)
+window.isiTemplateMusim = k => { const t = TEMPLATE_MUSIM[k]; if (!t) return; resetFormMusim(); Object.entries({ nama: t.nama, mulai: t.mulai, selesai: t.selesai, faktor: t.faktor, ingat: mgKeBln(t.ingat), kata: t.kata, cat: t.catatan, mode: t.mode || 'faktor' }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)
   toast('Template diisi — sesuaikan tanggal & kata kunci, lalu simpan'); document.getElementById('ms-form').open = true }
 window.resetFormMusim = () => { ['nama', 'mulai', 'selesai', 'kata', 'cat'].forEach(f => document.getElementById('ms-' + f).value = ''); document.getElementById('ms-faktor').value = 2; document.getElementById('ms-ingat').value = 2; document.getElementById('ms-mode').value = 'faktor'
   document.getElementById('ms-id').value = ''; document.getElementById('ms-usul').innerHTML = ''; window._msSku = [] }
@@ -1441,7 +1451,7 @@ function renderMusim() {
   document.getElementById('ms-n').textContent = list.filter(x => x.st.aktif).length ? `· ${list.filter(x => x.st.aktif).length} sedang berlaku` : ''
   box.innerHTML = list.length ? list.map(({ m, st }) => { const n = prod.length ? prod.filter(p => cocokMusim(m, p)).length : null
     return `<div class="po-kartu" style="${st.aktif ? 'border-color:#fcd34d;background:#fffbeb' : ''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-      <div><b>📅 ${esc(m.nama)}</b> <span style="font-size:12px;color:#666">${tglPendek('2000-' + m.mulai)} – ${tglPendek('2000-' + m.selesai)} · ${m.mode === 'tahunlalu' ? 'siapkan total terjual musim tahun lalu' + (+m.faktor > 1 ? ' ×' + m.faktor : '') : 'laku ×' + m.faktor} · disiapkan ±${mgKeBln(m.ingat)} bulan sebelumnya</span>
+      <div><b>📅 ${esc(m.nama)}</b> <span style="font-size:12px;color:#666">${tglPendek('2000-' + m.mulai)} – ${tglPendek('2000-' + m.selesai)} · ${m.mode === 'tahunlalu' ? 'siapkan total terjual musim tahun lalu' + (+m.faktor > 1 ? ' ×' + m.faktor : '') : 'laku ×' + m.faktor} · disiapkan ${mgKeBln(m.ingat) < 1 ? '2 minggu' : '±' + mgKeBln(m.ingat) + ' bulan'} sebelumnya</span>
         <div style="font-size:12px;font-weight:700;color:${st.aktif ? '#92400e' : '#475569'};margin-top:2px">${st.label}</div>
         <div style="font-size:11px;color:#666;margin-top:2px">${m.kata ? 'Kata kunci: ' + esc(m.kata) : ''}${m.sku?.length ? `${m.kata ? ' · ' : ''}${m.sku.length} barang dipilih` : ''}${n != null ? ` · <b>${n} barang cocok</b>` : ''}${m.catatan ? ' · ' + esc(m.catatan) : ''}</div></div>
       <div style="display:flex;gap:6px;align-items:start"><button class="btn btn-secondary btn-sm" onclick="ubahMusim('${jsStr(m.id)}')">✏️ Ubah</button><button class="btn btn-sm" style="background:#f1f5f9;color:#475569" onclick="hapusMusim('${jsStr(m.id)}')">Hapus</button></div></div></div>` }).join('')
@@ -1656,6 +1666,8 @@ window.klJadikanMusim = () => { const u = window._klUsul; if (!u) return; resetF
   const akhirTgl = new Date(2001, u.akhir, 0).getDate()
   Object.entries({ nama: u.kata, mulai: `${String(u.awal).padStart(2, '0')}-01`, selesai: `${String(u.akhir).padStart(2, '0')}-${akhirTgl}`, faktor: 1, ingat: 10, kata: u.kata, mode: 'tahunlalu', cat: 'Dari Kalender laku' }).forEach(([f, v]) => document.getElementById('ms-' + f).value = v)
   const f = document.getElementById('ms-form'); f.open = true; f.scrollIntoView({ behavior: 'smooth' }); toast('Form musim terisi — cek lalu Simpan musim') }
+function isiTemplateAcara() { const sel = document.getElementById('ms-template'); if (!sel || sel.dataset.isi) return
+  sel.innerHTML = '<option value="">📋 Pilih acara / template…</option>' + Object.entries(TEMPLATE_MUSIM).map(([k, t]) => `<option value="${k}">${t.ikon} ${esc(t.nama)} — siapkan ${mgKeBln(t.ingat) < 1 ? '2 minggu' : mgKeBln(t.ingat) + ' bln'}</option>`).join(''); sel.dataset.isi = '1' }
 async function isiKategoriKalender() { const sel = document.getElementById('kl-kat'); if (!sel || sel.dataset.isi) return; const prod = await produkSemua()
   const kats = [...new Set(prod.map(p => p.category).filter(Boolean))].sort(); sel.innerHTML = '<option value="">Semua kategori</option>' + kats.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join(''); sel.dataset.isi = '1' }
 

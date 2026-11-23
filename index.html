@@ -508,7 +508,7 @@
       <p style="font-size:12px;color:#666;margin-bottom:10px">Musim berulang tiap tahun. Mulai beberapa minggu sebelum musim, laku barang terkait otomatis dinaikkan di Daftar Belanja (dan muncul pengingat di Dashboard) supaya stok siap sebelum ramai.</p>
       <div id="ms-list"></div>
       <details id="ms-form" style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">+ Tambah / ubah musim</summary>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0"><span style="font-size:12px;color:#666;align-self:center">Template:</span><button class="btn btn-secondary btn-sm" onclick="isiTemplateMusim('ajaran')">🎒 Tahun ajaran baru</button><button class="btn btn-secondary btn-sm" onclick="isiTemplateMusim('paskibra')">🇮🇩 17 Agustus / Paskibra</button></div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0"><span style="font-size:12px;color:#666;align-self:center">Template:</span><button class="btn btn-secondary btn-sm" onclick="isiTemplateMusim('ajaran')">🎒 Tahun ajaran baru</button><select id="ms-template" onchange="isiTemplateMusim(this.value);this.value=''" style="flex:1;min-width:220px;padding:6px 10px;border:1.5px solid #e5e5e5;border-radius:8px;font-size:13px"><option value="">📋 Pilih acara / template…</option></select></div>
         <input type="hidden" id="ms-id">
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">
           <div class="form-group" style="margin:0;grid-column:span 2;min-width:0"><label>Nama musim *</label><input id="ms-nama" placeholder="cth: Diklat satpam gelombang 1"></div>
@@ -516,7 +516,7 @@
           <div class="form-group" style="margin:0"><label>Selesai (BB-TT) *</label><input id="ms-selesai" placeholder="08-20" inputmode="numeric"></div>
           <div class="form-group" style="margin:0;grid-column:span 2;min-width:0"><label>Cara hitung</label><select id="ms-mode"><option value="faktor">Laku/bln dinaikkan ×faktor</option><option value="tahunlalu">Siapkan total terjual musim tahun lalu (seragam sekolah)</option></select></div>
           <div class="form-group" style="margin:0"><label>Faktor (×)</label><input id="ms-faktor" type="number" min="1" step="0.1" value="2" title="Mode tahun lalu: 1 = sama dengan tahun lalu, 1.2 = target naik 20%"></div>
-          <div class="form-group" style="margin:0"><label>Mulai disiapkan (bulan sebelum)</label><input id="ms-ingat" type="number" min="1" max="11" value="2" title="cth seragam sekolah: 10 bulan sebelum kenaikan kelas"></div>
+          <div class="form-group" style="margin:0"><label>Mulai disiapkan (bulan sebelum, 0,5 = 2 minggu)</label><input id="ms-ingat" type="number" min="0.5" max="11" step="0.5" value="2" title="cth seragam sekolah: 10 bulan sebelum kenaikan kelas"></div>
         </div>
         <div class="form-group" style="margin:10px 0 0"><label>Kata kunci barang <span style="color:#999">(pisah koma — dicari di nama & kategori)</span></label><input id="ms-kata" placeholder="cth: PASKIBRA, PDU, MERAH PUTIH"></div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="cariBarangMusim()">🔍 Cari dari data penjualan</button><span id="ms-sku-n" style="font-size:12px;color:#166534;font-weight:700"></span></div>
@@ -660,7 +660,7 @@
 
 <div id="toast"></div>
 
-<script type="module" src="js/app.js?v=20261122d"></script>
+<script type="module" src="js/app.js?v=20261123a"></script>
 
 <script>
 const _fbCfg = {
