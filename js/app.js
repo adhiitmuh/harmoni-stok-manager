@@ -1675,7 +1675,34 @@ async function isiKategoriKalender() { const sel = document.getElementById('kl-k
 
 // ── HUT kabupaten/kota: pengingat ±30 hari sebelumnya (PNS & anak sekolah butuh baju adat/karnaval → iklan ke daerah itu) ──
 // Daftar bawaan (tanggal terverifikasi) + data Owner di harmoni-stok `hut_daerah/{id}` {daerah, provinsi, tgl:'MM-DD', tahun, pakaian, kata, catatan, nonaktif}
-const HUT_BAWAAN = []
+// Daftar bawaan HUT Sulsel (riset sumber pemda/berita, 23 Nov 2026). Puncak acara bisa diundur (mis. bertepatan Ramadan) — tanggal Hari Jadi resmi tetap.
+const HUT_BAWAAN = [
+  {"id": "SULSEL_PROV_SULSEL", "daerah": "Provinsi Sulawesi Selatan", "provinsi": "Sulawesi Selatan", "tgl": "10-19", "tahun": 1669},
+  {"id": "SULSEL_MAKASSAR", "daerah": "Kota Makassar", "provinsi": "Sulawesi Selatan", "tgl": "11-09", "tahun": 1607, "pakaian": "ASN pakaian adat Sulsel (SE Wali Kota tiap tahun)"},
+  {"id": "SULSEL_PAREPARE", "daerah": "Kota Parepare", "provinsi": "Sulawesi Selatan", "tgl": "02-17", "tahun": 1960},
+  {"id": "SULSEL_PALOPO", "daerah": "Kota Palopo", "provinsi": "Sulawesi Selatan", "tgl": "04-10", "tahun": 2002},
+  {"id": "SULSEL_BANTAENG", "daerah": "Kabupaten Bantaeng", "provinsi": "Sulawesi Selatan", "tgl": "12-07", "tahun": 1254},
+  {"id": "SULSEL_BARRU", "daerah": "Kabupaten Barru", "provinsi": "Sulawesi Selatan", "tgl": "02-20", "tahun": 1960},
+  {"id": "SULSEL_BONE", "daerah": "Kabupaten Bone", "provinsi": "Sulawesi Selatan", "tgl": "04-06", "tahun": 1330, "pakaian": "ASN pakaian adat Bone saat puncak HJB (imbauan Bupati)"},
+  {"id": "SULSEL_BULUKUMBA", "daerah": "Kabupaten Bulukumba", "provinsi": "Sulawesi Selatan", "tgl": "02-04", "tahun": 1960},
+  {"id": "SULSEL_ENREKANG", "daerah": "Kabupaten Enrekang", "provinsi": "Sulawesi Selatan", "tgl": "02-19", "tahun": 1960, "pakaian": "pakaian adat Massenrempulu (2026 ditiadakan, efisiensi)"},
+  {"id": "SULSEL_GOWA", "daerah": "Kabupaten Gowa", "provinsi": "Sulawesi Selatan", "tgl": "11-17", "tahun": 1320, "pakaian": "baju bodo (wanita), jas tutup + songkok (pria)"},
+  {"id": "SULSEL_JENEPONTO", "daerah": "Kabupaten Jeneponto", "provinsi": "Sulawesi Selatan", "tgl": "05-01", "tahun": 1863},
+  {"id": "SULSEL_SELAYAR", "daerah": "Kabupaten Kepulauan Selayar", "provinsi": "Sulawesi Selatan", "tgl": "11-29", "tahun": 1605},
+  {"id": "SULSEL_LUWU", "daerah": "Kabupaten Luwu", "provinsi": "Sulawesi Selatan", "tgl": "01-23", "tahun": 1268, "catatan": "⚠️ tanggal belum pasti — sumber berbeda, cek Perda/JDIH"},
+  {"id": "SULSEL_LUWU_TIMUR", "daerah": "Kabupaten Luwu Timur", "provinsi": "Sulawesi Selatan", "tgl": "05-03", "tahun": 2003},
+  {"id": "SULSEL_LUWU_UTARA", "daerah": "Kabupaten Luwu Utara", "provinsi": "Sulawesi Selatan", "tgl": "04-27", "tahun": 1999},
+  {"id": "SULSEL_MAROS", "daerah": "Kabupaten Maros", "provinsi": "Sulawesi Selatan", "tgl": "07-04", "tahun": 1959},
+  {"id": "SULSEL_PANGKEP", "daerah": "Kabupaten Pangkajene dan Kepulauan", "provinsi": "Sulawesi Selatan", "tgl": "02-08", "tahun": 1960},
+  {"id": "SULSEL_PINRANG", "daerah": "Kabupaten Pinrang", "provinsi": "Sulawesi Selatan", "tgl": "02-19", "tahun": 1960, "catatan": "⚠️ tanggal belum pasti — sumber berbeda, cek Perda/JDIH"},
+  {"id": "SULSEL_SIDRAP", "daerah": "Kabupaten Sidenreng Rappang", "provinsi": "Sulawesi Selatan", "tgl": "02-18", "tahun": 1344},
+  {"id": "SULSEL_SINJAI", "daerah": "Kabupaten Sinjai", "provinsi": "Sulawesi Selatan", "tgl": "02-27", "tahun": 1564},
+  {"id": "SULSEL_SOPPENG", "daerah": "Kabupaten Soppeng", "provinsi": "Sulawesi Selatan", "tgl": "03-23", "tahun": 1261},
+  {"id": "SULSEL_TAKALAR", "daerah": "Kabupaten Takalar", "provinsi": "Sulawesi Selatan", "tgl": "02-10", "tahun": 1960},
+  {"id": "SULSEL_TANA_TORAJA", "daerah": "Kabupaten Tana Toraja", "provinsi": "Sulawesi Selatan", "tgl": "08-31", "tahun": 1957, "pakaian": "pakaian adat Toraja"},
+  {"id": "SULSEL_TORAJA_UTARA", "daerah": "Kabupaten Toraja Utara", "provinsi": "Sulawesi Selatan", "tgl": "07-21", "tahun": 2008, "pakaian": "pakaian adat Toraja", "catatan": "⚠️ tanggal belum pasti — sumber berbeda, cek Perda/JDIH"},
+  {"id": "SULSEL_WAJO", "daerah": "Kabupaten Wajo", "provinsi": "Sulawesi Selatan", "tgl": "03-29", "tahun": 1399, "pakaian": "jas tutup + songkok recca + lipa' sabbe", "catatan": "⚠️ tanggal belum pasti — sumber berbeda, cek Perda/JDIH"},
+]
 const HUT_KATA = 'ADAT, KARNAVAL, BATIK, BODO, JAS TUTUP, PASSAPU, SONGKOK'
 let _hut = null
 async function muatHut(paksa) {
