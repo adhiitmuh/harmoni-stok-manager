@@ -134,6 +134,8 @@ async function renderRingkasan(products) {
   getDocs(collection(db, 'opname')).then(sn => { const tunggu = sn.docs.filter(d => d.data().status === 'menunggu').length, batas = tambahHari(hariIni(), -30)
     const lama = products.filter(p => ['toko', 'gudang'].some(l => diLokasi(p, l) && (!p['opname_' + l] || p['opname_' + l] < batas))).length
     box.insertAdjacentHTML('beforeend', `<button class="ringkas-kartu" style="background:${tunggu ? '#eff6ff' : '#f8fafc'};color:${tunggu ? '#1e40af' : '#334155'}" onclick="document.querySelector('.nav-item[data-page=opname]').click()"><div class="rk-ikon">🧮 Opname</div><div class="rk-val" style="font-size:16px">${tunggu ? tunggu + ' menunggu' : num(lama) + ' barang'}</div><div class="rk-sub">${tunggu ? 'perlu persetujuan · ' : ''}${num(lama)} barang belum dihitung &gt;30 hari</div></button>`) }).catch(() => {})
+  muatHut(true).then(hs => { const dekat = hs.map(x => ({ x, b: hutBerikut(x) })).filter(y => y.b.sisa <= 30).sort((a, b) => a.b.sisa - b.b.sisa); if (!dekat.length) return
+    box.insertAdjacentHTML('afterbegin', `<button class="ringkas-kartu" style="background:#fff7ed;color:#9a3412;border-color:#fdba74" onclick="keBelanja();setTimeout(()=>document.getElementById('hut-list')?.scrollIntoView({behavior:'smooth'}),800)"><div class="rk-ikon">📍 HUT daerah 30 hari ke depan</div><div class="rk-val" style="font-size:15px">${dekat.slice(0, 2).map(y => esc(y.x.daerah) + ' (' + (y.b.sisa ? y.b.sisa + ' hr' : 'hari ini') + ')').join(', ')}</div><div class="rk-sub">${dekat.length > 2 ? '+' + (dekat.length - 2) + ' daerah lagi · ' : ''}siapkan baju adat/karnaval & iklan ke daerahnya</div></button>`) }).catch(() => {})
   muatMusim(true).then(ms => ms.map(m => ({ m, st: statusMusim(m) })).filter(x => x.st.aktif).forEach(({ m, st }) => box.insertAdjacentHTML('afterbegin', `<button class="ringkas-kartu" style="background:#fffbeb;color:#92400e;border-color:#fcd34d" onclick="keBelanja()"><div class="rk-ikon">📅 ${esc(m.nama)}</div><div class="rk-val" style="font-size:15px">${st.tahap === 'jalan' ? 'Sedang musim' : st.hari >= 14 ? Math.round(st.hari / 7) + ' minggu lagi' : st.hari + ' hari lagi'}</div><div class="rk-sub">${tglPendek(st.s)} – ${tglPendek(st.e)} · siapkan stok (laku ×${m.faktor})</div></button>`))).catch(() => {})
   getDocs(collection(db, 'po')).then(sn => { const now = hariIni(), a = sn.docs.map(d => d.data()).filter(p => p.status === 'dipesan'); if (!a.length) return
     const tl = a.filter(p => p.perkiraan_datang && p.perkiraan_datang < now).length
@@ -1107,7 +1109,7 @@ window.keBelanja = keBelanja
 async function loadBelanja() {
   const b = lsGet('bl_budget', ''); if (b && !document.getElementById('bl-budget').value) document.getElementById('bl-budget').value = (+b).toLocaleString('id-ID')
   const o = lsGet('bl_opsi', null); if (o && !_bl) { document.getElementById('bl-bulan').value = o.bulan || '1'; document.getElementById('bl-mode').value = o.mode || 'rek'; document.getElementById('bl-final').checked = o.final !== false; document.getElementById('bl-rata').value = o.rata || '3'; document.getElementById('bl-tren').checked = o.tren !== false; window._blKat = o.kat || '' }
-  await Promise.all([loadPO(), muatMusim(), muatCustom(), muatPesananOutlet()]); await hitungBelanja(); renderMusim(); renderCustomBahan(); renderPesananOutlet(); isiKategoriKalender(); isiTemplateAcara()
+  await Promise.all([loadPO(), muatMusim(), muatCustom(), muatPesananOutlet()]); await hitungBelanja(); renderMusim(); renderCustomBahan(); renderPesananOutlet(); isiKategoriKalender(); isiTemplateAcara(); muatHut().then(renderHut)
 }
 window.formatBudget = el => { const v = el.value.replace(/\D/g, ''); el.value = v ? (+v).toLocaleString('id-ID') : ''; lsSet('bl_budget', v)
   clearTimeout(window._blT); window._blT = setTimeout(() => { if (_bl) aturBudget() }, 350) }
@@ -1670,6 +1672,52 @@ function isiTemplateAcara() { const sel = document.getElementById('ms-template')
   sel.innerHTML = '<option value="">📋 Pilih acara / template…</option>' + Object.entries(TEMPLATE_MUSIM).map(([k, t]) => `<option value="${k}">${t.ikon} ${esc(t.nama)} — siapkan ${mgKeBln(t.ingat) < 1 ? '2 minggu' : mgKeBln(t.ingat) + ' bln'}</option>`).join(''); sel.dataset.isi = '1' }
 async function isiKategoriKalender() { const sel = document.getElementById('kl-kat'); if (!sel || sel.dataset.isi) return; const prod = await produkSemua()
   const kats = [...new Set(prod.map(p => p.category).filter(Boolean))].sort(); sel.innerHTML = '<option value="">Semua kategori</option>' + kats.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join(''); sel.dataset.isi = '1' }
+
+// ── HUT kabupaten/kota: pengingat ±30 hari sebelumnya (PNS & anak sekolah butuh baju adat/karnaval → iklan ke daerah itu) ──
+// Daftar bawaan (tanggal terverifikasi) + data Owner di harmoni-stok `hut_daerah/{id}` {daerah, provinsi, tgl:'MM-DD', tahun, pakaian, kata, catatan, nonaktif}
+const HUT_BAWAAN = []
+const HUT_KATA = 'ADAT, KARNAVAL, BATIK, BODO, JAS TUTUP, PASSAPU, SONGKOK'
+let _hut = null
+async function muatHut(paksa) {
+  if (_hut && !paksa) return _hut
+  const m = {}; HUT_BAWAAN.forEach(x => { m[x.id] = { ...x, bawaan: true } })
+  try { (await getDocs(collection(db, 'hut_daerah'))).docs.forEach(d => { m[d.id] = { ...(m[d.id] || {}), ...d.data(), id: d.id } }) } catch (e) { console.warn('hut_daerah', e) }
+  _hut = Object.values(m).filter(x => x.tgl && !x.nonaktif)
+  return _hut
+}
+// Hari menuju HUT berikutnya (0 = hari ini) + tanggal kejadian & ulang tahun ke-
+function hutBerikut(x, hari = hariIni()) { const Y = +hari.slice(0, 4); let t = `${Y}-${x.tgl}`; if (t < hari) t = `${Y + 1}-${x.tgl}`
+  return { tanggal: t, sisa: selisihHari(hari, t), ke: x.tahun ? +t.slice(0, 4) - +x.tahun : null } }
+function renderHut() {
+  const box = document.getElementById('hut-list'); if (!box || !_hut) return
+  const q = (document.getElementById('hut-cari')?.value || '').trim().toUpperCase(), prov = document.getElementById('hut-prov')?.value || ''
+  const provs = [...new Set(_hut.map(x => x.provinsi).filter(Boolean))].sort(), sel = document.getElementById('hut-prov')
+  if (sel && sel.dataset.isi !== provs.join('|')) { sel.innerHTML = '<option value="">Semua provinsi</option>' + provs.map(p => `<option>${esc(p)}</option>`).join(''); sel.value = provs.includes(prov) ? prov : ''; sel.dataset.isi = provs.join('|') }
+  const list = _hut.map(x => ({ x, b: hutBerikut(x) })).filter(({ x }) => (!prov || x.provinsi === prov) && (!q || (x.daerah + ' ' + (x.provinsi || '')).toUpperCase().includes(q))).sort((a, b) => a.b.sisa - b.b.sisa)
+  const prod = _bh?.produk || stokAllData || []
+  document.getElementById('hut-n').textContent = `· ${_hut.length} daerah · ${_hut.filter(x => hutBerikut(x).sisa <= 30).length} dalam 30 hari`
+  box.innerHTML = list.length ? list.map(({ x, b }) => { const dekat = b.sisa <= 30, kata = String(x.kata || HUT_KATA).toUpperCase().split(',').map(t => t.trim()).filter(Boolean)
+      const cocok = prod.filter(p => kata.some(k => (namaProduk(p) + ' ' + (p.category || '')).toUpperCase().includes(k))), stok = cocok.reduce((t, p) => t + totalStok(p), 0)
+      return `<div class="po-kartu" style="${dekat ? 'border-color:#fcd34d;background:#fffbeb' : ''}"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div><b>📍 HUT ${esc(x.daerah)}${b.ke ? ' ke-' + b.ke : ''}</b> <span style="font-size:12px;color:#666">${esc(x.provinsi || '')} · ${tglPendek(b.tanggal)} ${b.tanggal.slice(0, 4)}</span>
+          <div style="font-size:12px;font-weight:700;color:${dekat ? '#92400e' : '#475569'};margin-top:2px">${b.sisa === 0 ? '🎉 Hari ini' : dekat ? `🔔 ${b.sisa} hari lagi — siapkan stok & iklan ke ${esc(x.daerah)}` : `${b.sisa} hari lagi`}</div>
+          ${x.pakaian ? `<div style="font-size:12px;color:#475569;margin-top:2px">👔 ${esc(x.pakaian)}</div>` : ''}
+          <div style="font-size:11px;color:#666;margin-top:2px">Barang terkait (${esc(kata.join(', '))}): <b>${cocok.length}</b> barang · stok ${num(stok)}${x.catatan ? ' · ' + esc(x.catatan) : ''}${x.bawaan ? ' · <span style="color:#94a3b8">data bawaan</span>' : ''}</div></div>
+        <div><button class="btn btn-secondary btn-sm" onclick="ubahHut('${jsStr(x.id)}')">✏️</button></div></div></div>` }).join('')
+    : `<p style="font-size:13px;color:#666">${_hut.length ? 'Tidak ada yang cocok.' : 'Belum ada daerah. Tambah di bawah.'}</p>`
+}
+window.renderHut = renderHut
+window.ubahHut = id => { const x = _hut.find(y => y.id === id); if (!x) return
+  Object.entries({ id: x.id, daerah: x.daerah, provinsi: x.provinsi || '', tgl: x.tgl, tahun: x.tahun || '', pakaian: x.pakaian || '', kata: x.kata || '', cat: x.catatan || '' }).forEach(([f, v]) => document.getElementById('hut-' + f).value = v)
+  const f = document.getElementById('hut-form'); f.open = true; f.scrollIntoView({ behavior: 'smooth' }) }
+window.batalHut = () => { ['id', 'daerah', 'provinsi', 'tgl', 'tahun', 'pakaian', 'kata', 'cat'].forEach(f => document.getElementById('hut-' + f).value = ''); document.getElementById('hut-form').open = false }
+window.simpanHut = async () => { const v = f => document.getElementById('hut-' + f).value.trim(), daerah = v('daerah'), tgl = mmdd(v('tgl'))
+  if (!daerah) return toast('Nama daerah wajib diisi', 'error'); if (!tgl) return toast('Isi tanggal HUT dengan format BB-TT, cth 11-09', 'error')
+  const id = v('id') || idSup(daerah)
+  try { await setDoc(doc(db, 'hut_daerah', id), { daerah, provinsi: v('provinsi'), tgl, tahun: +v('tahun') || null, pakaian: v('pakaian'), kata: v('kata'), catatan: v('cat'), nonaktif: false, oleh: window._harmoniUserName || '', updated_at: serverTimestamp() })
+    toast(`✅ HUT ${daerah} disimpan`); batalHut(); await muatHut(true); renderHut() } catch (e) { toast('Gagal: ' + e.message, 'error') } }
+window.hapusHut = async () => { const id = document.getElementById('hut-id').value; if (!id || !confirm('Hapus daerah ini dari pengingat?')) return
+  try { await setDoc(doc(db, 'hut_daerah', id), { nonaktif: true, updated_at: serverTimestamp() }, { merge: true }); batalHut(); await muatHut(true); renderHut(); toast('Dihapus dari pengingat') } catch (e) { toast('Gagal: ' + e.message, 'error') } }
 
 // Cari barang yang penjualannya naik di bulan-bulan musim (dari riwayat penjualan Analitik)
 window.cariBarangMusim = async () => {

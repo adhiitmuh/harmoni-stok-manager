@@ -493,6 +493,25 @@
     <div id="bl-ringkas"></div>
     <div id="bl-hasil"></div>
     <div class="card">
+      <div class="card-title">📍 HUT kabupaten/kota <span id="hut-n" style="font-size:12px;color:#9a3412"></span></div>
+      <p style="font-size:12px;color:#666;margin-bottom:8px">Saat HUT daerah, PNS & anak sekolah biasanya butuh baju adat / karnaval. Daerah yang HUT-nya ≤30 hari lagi ditandai 🔔 dan muncul di Dashboard — waktunya siapkan stok & iklan ke daerah itu.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px"><input id="hut-cari" type="search" placeholder="Cari daerah…" oninput="renderHut()" style="flex:2;min-width:160px"><select id="hut-prov" onchange="renderHut()" style="flex:1;min-width:150px"><option value="">Semua provinsi</option></select></div>
+      <div id="hut-list" style="max-height:520px;overflow:auto"></div>
+      <details id="hut-form" style="margin-top:8px"><summary style="cursor:pointer;font-weight:700;font-size:13px">+ Tambah / ubah daerah</summary>
+        <input type="hidden" id="hut-id">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:8px">
+          <div class="form-group" style="margin:0;grid-column:span 2;min-width:0"><label>Kabupaten / kota *</label><input id="hut-daerah" placeholder="cth: Kabupaten Gowa"></div>
+          <div class="form-group" style="margin:0"><label>Provinsi</label><input id="hut-provinsi" placeholder="Sulawesi Selatan"></div>
+          <div class="form-group" style="margin:0"><label>Tanggal HUT (BB-TT) *</label><input id="hut-tgl" placeholder="11-16" inputmode="numeric"></div>
+          <div class="form-group" style="margin:0"><label>Tahun berdiri</label><input id="hut-tahun" type="number" placeholder="1320"></div>
+        </div>
+        <div class="form-group" style="margin:10px 0 0"><label>Pakaian yang biasa dipakai (opsional)</label><input id="hut-pakaian" placeholder="cth: pakaian adat Makassar (baju bodo / jas tutup + songkok)"></div>
+        <div class="form-group" style="margin:10px 0 0"><label>Kata kunci barang terkait <span style="color:#999">(kosong = ADAT, KARNAVAL, BATIK, BODO, …)</span></label><input id="hut-kata"></div>
+        <div class="form-group" style="margin:10px 0 0"><label>Catatan</label><input id="hut-cat" placeholder="cth: kontak reseller di daerah ini"></div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn btn-primary" onclick="simpanHut()">💾 Simpan</button><button class="btn btn-secondary" onclick="batalHut()">Batal</button><button class="btn btn-sm" style="background:#f1f5f9;color:#475569" onclick="hapusHut()">🗑 Hapus</button></div>
+      </details>
+    </div>
+    <div class="card">
       <div class="card-title">🗓️ Kalender laku — barang ramai di bulan apa?</div>
       <p style="font-size:12px;color:#666;margin-bottom:8px">Cari per kata kunci atau kategori (cth: <b>PASKIBRA</b>, <b>PRAMUKA</b>, <b>KARNAVAL</b>, <b>SERAGAM SD</b>) untuk melihat pola laku Jan–Des dan kapan harus mulai menyiapkan stok.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
@@ -660,7 +679,7 @@
 
 <div id="toast"></div>
 
-<script type="module" src="js/app.js?v=20261123a"></script>
+<script type="module" src="js/app.js?v=20261123b"></script>
 
 <script>
 const _fbCfg = {
